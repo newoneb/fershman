@@ -1,0 +1,118 @@
+{
+  "cleanUrls": false,
+  "trailingSlash": false,
+  "rewrites": [
+    {
+      "source": "/articles/:path*",
+      "destination": "/article.html"
+    },
+    {
+      "source": "/categories",
+      "destination": "/categories.html"
+    },
+    {
+      "source": "/categories/:path*",
+      "destination": "/category.html"
+    },
+    {
+      "source": "/authors",
+      "destination": "/authors.html"
+    },
+    {
+      "source": "/authors/:path*",
+      "destination": "/author.html"
+    },
+    {
+      "source": "/learn",
+      "destination": "/learn.html"
+    },
+    {
+      "source": "/learn/:path*",
+      "destination": "/learn.html"
+    },
+    {
+      "source": "/about-us",
+      "destination": "/about.html"
+    },
+    {
+      "source": "/about",
+      "destination": "/about.html"
+    },
+    {
+      "source": "/register",
+      "destination": "/subscribe.html"
+    },
+    {
+      "source": "/subscribe",
+      "destination": "/subscribe.html"
+    },
+    {
+      "source": "/submit",
+      "destination": "/submit.html"
+    },
+    {
+      "source": "/apply",
+      "destination": "/apply.html"
+    },
+    {
+      "source": "/contact",
+      "destination": "/contact.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/search",
+      "destination": "/search.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/authors/shaurya-vohtra",
+      "destination": "/authors/shaurya-vohra",
+      "permanent": true
+    },
+    {
+      "source": "/learn-economics-categories/microeconomics",
+      "destination": "/learn?topic=Microeconomics",
+      "permanent": true
+    },
+    {
+      "source": "/learn-economics-categories/macroeconomics",
+      "destination": "/learn?topic=Macroeconomics",
+      "permanent": true
+    },
+    {
+      "source": "/learn-economics-categories",
+      "destination": "/learn",
+      "permanent": true
+    },
+    {
+      "source": "/learn-economics-categories/:path*",
+      "destination": "/learn",
+      "permanent": true
+    },
+    {
+      "source": "/admin",
+      "destination": "/admin/",
+      "permanent": true
+    },
+    {
+      "source": "/portal",
+      "destination": "/portal/",
+      "permanent": true
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(admin|portal)/(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    }
+  ]
+}

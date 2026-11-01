@@ -1,0 +1,26 @@
+# Rewrites for Netlify (and Cloudflare Pages). First match wins.
+# These keep every URL from the old Framer site working.
+
+/articles/*                                  /article.html                 200
+/categories                                  /categories.html              200
+/categories/*                                /category.html                200
+/authors                                     /authors.html                 200
+/authors/shaurya-vohtra                      /authors/shaurya-vohra        301
+/authors/*                                   /author.html                  200
+/learn                                       /learn.html                   200
+/learn/*                                     /learn.html                   200
+/learn-economics-categories/microeconomics   /learn?topic=Microeconomics   301
+/learn-economics-categories/macroeconomics   /learn?topic=Macroeconomics   301
+/learn-economics-categories                  /learn                        301
+/learn-economics-categories/*                /learn                        301
+/about-us                                    /about.html                   200
+/about                                       /about.html                   200
+/register                                    /subscribe.html               200
+/subscribe                                   /subscribe.html               200
+/submit                                      /submit.html                  200
+/apply                                       /apply.html                   200
+/contact                                     /contact.html                 200
+/privacy                                     /privacy.html                 200
+/search                                      /search.html                  200
+/admin                                       /admin/                       301
+/portal                                      /portal/                      301
