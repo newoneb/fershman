@@ -14,8 +14,8 @@
  */
 export default {
   supabase: {
-    url: "", // e.g. "https://abcdefghijkl.supabase.co"
-    key: "", // publishable key "sb_publishable_…" (or the legacy anon key)
+    url: "https://sykqhnoklqmiosghlnbe.supabase.co",
+    key: "sb_publishable_JbHljvWj0OeGYU0wnC35EA_jh1E_8nq",
   },
 
   site: {
