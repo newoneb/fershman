@@ -12,11 +12,12 @@ const NAV = [
   { key: "authors", label: "Authors", icon: "users", min: "editor" },
   { key: "portal", label: "Member portal", icon: "folder", min: "editor" },
   { key: "inbox", label: "Inbox", icon: "inbox", min: "editor", badge: (c) => c.newMessages },
-  { key: "recruiting", label: "Recruiting", icon: "calendar", min: "editor", badge: (c) => c.newApplications },
+  { key: "recruiting", label: "Recruiting", icon: "calendar", min: "writer", allow: (s) => roleAtLeast(s.profile.role, "editor") || s.recruiter, badge: (c) => c.newApplications },
   { key: "members", label: "Members", icon: "user", min: "admin", badge: (c) => c.pending },
   { key: "subscribers", label: "Subscribers", icon: "mail", min: "admin" },
   { key: "import", label: "Import", icon: "upload", min: "editor" },
   { key: "settings", label: "Settings", icon: "settings", min: "admin" },
+  { key: "byline", label: "My byline", icon: "edit", min: "writer" },
 ];
 
 let session = null;
@@ -25,6 +26,7 @@ let leaveGuard = null;
 let lastHash = location.hash;
 
 export function setLeaveGuard(fn) { leaveGuard = fn; }
+const canSee = (n) => roleAtLeast(session.profile.role, n.min) && (!n.allow || n.allow(session));
 export function navigate(hash, { replace = false } = {}) {
   if (replace) { history.replaceState(null, "", hash); lastHash = hash; route(); }
   else location.hash = hash;
@@ -66,7 +68,7 @@ function shell() {
       <aside class="app-side" id="app-side" aria-label="Admin navigation">
         <a class="app-brand" href="#/dashboard"><strong>${config.site.shortName}</strong><span>Admin</span></a>
         <nav class="app-nav">
-          ${NAV.filter((n) => roleAtLeast(role, n.min)).map((n) => html`
+          ${NAV.filter((n) => canSee(n)).map((n) => html`
             <a href="#/${n.key}" data-nav="${n.key}">${icon(n.icon)}<span>${n.label}</span>${n.badge ? html`<span class="count" data-badge="${n.key}" hidden></span>` : ""}</a>`)}
         </nav>
         <div class="app-side-foot">
@@ -117,7 +119,7 @@ async function route() {
   const el = prev.cloneNode(false);
   prev.replaceWith(el);
   leaveGuard = null;
-  if (!item || !roleAtLeast(role, item.min)) {
+  if (!item || !canSee(item)) {
     mount(el, html`<div class="view"><div class="card card-pad"><h2>That page isn't available</h2><p>Your role (${ROLE_LABELS[role]}) doesn't include it.</p><p style="margin-top:12px"><a class="btn" href="#/dashboard">Go to the dashboard</a></p></div></div>`);
     return;
   }

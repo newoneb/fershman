@@ -3,6 +3,7 @@ import { db, config } from "../data/db.js";
 import { html, raw, mount, routeParam, params, debounce, esc, $ } from "../lib/util.js";
 import { initChrome, setMeta } from "./chrome.js";
 import { story, articleUrl, sectionUrl, avatar, authorUrl, skeletonCards, emptyState, errorState } from "./cards.js";
+import { teamList, authorTeams } from "../data/shared.js";
 
 const page = document.body.dataset.page;
 const main = $("#main");
@@ -91,9 +92,8 @@ async function authorsPage() {
   initChrome({ active: null });
   setMeta({ title: "Authors", description: "The analysts, editors and writers behind The Fershman Journal." });
   const authors = await db.listAuthors();
-  const teams = [...config.authorTeams];
-  authors.forEach((a) => { if (a.team && !teams.includes(a.team)) teams.push(a.team); });
-  const grouped = teams.map((t) => ({ team: t, people: authors.filter((a) => (a.team || "Contributors") === t) })).filter((g) => g.people.length);
+  const teams = teamList(config.authorTeams, authors);
+  const grouped = teams.map((t) => ({ team: t, people: authors.filter((a) => authorTeams(a).includes(t)) })).filter((g) => g.people.length);
   mount(main, html`<div class="container page">
     <header class="page-head"><h1>Authors</h1><p>The analysts, editors and writers behind the journal.</p></header>
     ${grouped.length ? grouped.map((g) => html`

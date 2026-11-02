@@ -2,6 +2,7 @@
 // change in the admin panel or member portal is saved in this browser only.
 import { uid, slugify } from "../lib/util.js";
 import {
+  normalizeAuthor, authorTeams, BYLINE_FIELDS, MARKETING,
   isPublic, byDateDesc, sortAuthors, SETTINGS_DEFAULTS, cleanArticle, roleAtLeast,
   articleState, pick, AUTHOR_FIELDS, guessMime,
 } from "./shared.js";
@@ -87,6 +88,11 @@ export async function createDemoAdapter(config) {
     state.registrations = [];
     writeLS(DB_KEY, state);
   }
+  if (!state.periods) {
+    state.periods = [];
+    state.authors = state.authors.map(normalizeAuthor);
+    writeLS(DB_KEY, state);
+  }
   const save = () => {
     if (!writeLS(DB_KEY, state)) throw new Error("Demo storage in this browser is full. Connect Supabase, or reset the demo in Admin → Settings.");
   };
@@ -97,6 +103,14 @@ export async function createDemoAdapter(config) {
   const me = () => session && session.profile;
   const role = () => (me() ? me().role : "anon");
   const need = (min) => { if (!session || !roleAtLeast(role(), min)) throw denied(); };
+  const isRecruiter = () => {
+    if (!session) return false;
+    if (roleAtLeast(role(), "editor")) return true;
+    if (!roleAtLeast(role(), "member")) return false;
+    const a = state.authors.find((x) => x.id === me().author_id);
+    return Boolean(a) && authorTeams(a).includes(MARKETING);
+  };
+  const needRecruiter = () => { if (!isRecruiter()) throw denied(); };
   const setSession = (profile) => {
     session = profile ? { user: { id: profile.id, email: profile.email }, profile: clone(profile) } : null;
     if (session) writeLS(SESSION_KEY, session); else localStorage.removeItem(SESSION_KEY);
@@ -192,7 +206,7 @@ export async function createDemoAdapter(config) {
       if (!session) return null;
       const fresh = state.profiles.find((p) => p.id === session.user.id);
       if (fresh) setSession(fresh);
-      return clone(session);
+      return { ...clone(session), recruiter: isRecruiter() };
     },
     onAuthChange(cb) { listeners.add(cb); return () => listeners.delete(cb); },
     async signIn(email, password) {
@@ -298,7 +312,7 @@ export async function createDemoAdapter(config) {
     // ---------- Staff: authors ----------
     async saveAuthor(input) {
       need("editor");
-      const row = pick(input, AUTHOR_FIELDS);
+      const row = normalizeAuthor(pick(input, AUTHOR_FIELDS));
       row.slug = row.slug || slugify(row.name);
       if (state.authors.some((x) => x.slug === row.slug && x.id !== input.id)) {
         throw Object.assign(new Error('duplicate key value violates unique constraint "authors_slug_key"'), { code: "23505" });
@@ -322,7 +336,8 @@ export async function createDemoAdapter(config) {
     },
     async importAuthors(list) {
       need("editor");
-      for (const a of list) {
+      for (const raw of list) {
+        const a = normalizeAuthor(raw);
         const cur = state.authors.find((x) => x.slug === a.slug);
         if (cur) Object.assign(cur, pick(a, AUTHOR_FIELDS));
         else state.authors.push({ id: uid(), team: "Contributors", sort_order: 100, ...pick(a, AUTHOR_FIELDS), created_at: nowISO() });
@@ -345,10 +360,14 @@ export async function createDemoAdapter(config) {
       if (me() && me().id === id) { setSession(p); emit("USER_UPDATED"); }
       return clone(p);
     },
-    async listMessages() { need("editor"); return clone(state.messages); },
+    async listMessages() {
+      if (roleAtLeast(role(), "editor")) return clone(state.messages);
+      needRecruiter();
+      return clone(state.messages.filter((m) => m.kind === "application"));
+    },
     async updateMessage(id, patch) {
-      need("editor");
       const m = state.messages.find((x) => x.id === id);
+      if (!(roleAtLeast(role(), "editor") || (isRecruiter() && m && m.kind === "application"))) throw denied();
       if (m) Object.assign(m, pick(patch, ["status", "stage"]));
       save();
     },
@@ -365,7 +384,7 @@ export async function createDemoAdapter(config) {
         subscribers: roleAtLeast(role(), "admin") ? state.subscribers.length : 0,
         newMessages: roleAtLeast(role(), "editor") ? state.messages.filter((m) => m.status === "new").length : 0,
         pending: roleAtLeast(role(), "admin") ? state.profiles.filter((p) => p.role === "pending").length : 0,
-        newApplications: roleAtLeast(role(), "editor") ? state.messages.filter((m) => m.kind === "application" && (m.stage || "new") === "new").length : 0,
+        newApplications: isRecruiter() ? state.messages.filter((m) => m.kind === "application" && (m.stage || "new") === "new").length : 0,
       };
     },
 
@@ -443,12 +462,12 @@ export async function createDemoAdapter(config) {
       return { ...details, status: "registered" };
     },
     async adminListInfoSessions() {
-      need("editor");
+      needRecruiter();
       return clone(state.sessions).sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
         .map((x) => ({ ...x, registered: state.registrations.filter((r) => r.session_id === x.id).length }));
     },
     async saveInfoSession(input) {
-      need("editor");
+      needRecruiter();
       const row = pick(input, ["title", "description", "starts_at", "duration_min", "location", "join_url", "capacity", "is_published"]);
       if (input.id) {
         const cur = state.sessions.find((x) => x.id === input.id);
@@ -462,19 +481,44 @@ export async function createDemoAdapter(config) {
       return clone(rec);
     },
     async deleteInfoSession(id) {
-      need("editor");
+      needRecruiter();
       state.sessions = state.sessions.filter((x) => x.id !== id);
       state.registrations = state.registrations.filter((r) => r.session_id !== id);
       save();
     },
     async listRegistrations(sessionId) {
-      need("editor");
+      needRecruiter();
       return clone(state.registrations.filter((r) => r.session_id === sessionId));
     },
     async deleteRegistration(id) {
-      need("editor");
+      needRecruiter();
       state.registrations = state.registrations.filter((r) => r.id !== id);
       save();
+    },
+    async listRecruitingPeriods() {
+      return clone(state.periods).sort((a, b) => b.starts_on.localeCompare(a.starts_on));
+    },
+    async saveRecruitingPeriod(input) {
+      needRecruiter();
+      const row = pick(input, ["title", "starts_on", "ends_on", "note"]);
+      if (input.id) { const cur = state.periods.find((x) => x.id === input.id); Object.assign(cur, row); save(); return clone(cur); }
+      const rec = { id: uid(), note: null, ...row, created_at: nowISO() };
+      state.periods.push(rec);
+      save();
+      return clone(rec);
+    },
+    async deleteRecruitingPeriod(id) {
+      needRecruiter();
+      state.periods = state.periods.filter((x) => x.id !== id);
+      save();
+    },
+    async updateMyByline(patch) {
+      need("writer");
+      const a = state.authors.find((x) => x.id === me().author_id);
+      if (!a) throw new Error("Your account isn't linked to a byline yet. Ask an admin to link it in Members.");
+      Object.assign(a, pick(patch, BYLINE_FIELDS));
+      save();
+      return clone(a);
     },
 
     // ---------- Demo-only helpers ----------

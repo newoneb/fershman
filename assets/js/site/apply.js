@@ -2,7 +2,7 @@
 import { db, config } from "../data/db.js";
 import { html, raw, mount, icon, isEmail, safeUrl, $, $$ } from "../lib/util.js";
 import { openPanel, toast, downloadFile } from "../lib/ui.js";
-import { mergeRecruiting, applicationStatus, friendlyError } from "../data/shared.js";
+import { mergeRecruiting, applicationStatus, friendlyError, isMarketing } from "../data/shared.js";
 import { initChrome, setMeta } from "./chrome.js";
 import { avatar, errorState } from "./cards.js";
 
@@ -65,16 +65,30 @@ function embedBooking(url) {
 
 // ---------- page ----------
 async function load() {
-  const [settings, authors, sessions] = await Promise.all([
+  const [settings, authors, sessions, periods] = await Promise.all([
     db.getSettings(),
     db.listAuthors().catch(() => []),
     db.listInfoSessions().catch((e) => { console.warn("Info sessions unavailable", e); return []; }),
+    db.listRecruitingPeriods().catch(() => []),
   ]);
-  return { rc: mergeRecruiting(settings.recruiting), authors, sessions };
+  return { rc: mergeRecruiting(settings.recruiting), authors, sessions, periods };
 }
 
-function hostCards(rc, authors) {
-  return rc.hosts.filter((h) => h && (h.name || h.author_slug)).map((h, i) => {
+let HOSTS = [];
+/** Extra hosts from Recruiting settings first, then everyone on the Marketing team. */
+function allHosts(rc, authors) {
+  const listed = rc.hosts.filter((h) => h && (h.name || h.author_slug)).map((h) => {
+    const a = authors.find((x) => x.slug === h.author_slug);
+    return { ...h, booking_url: h.booking_url || (a && a.booking_url) || "", email: h.email || (a && a.contact_email) || "" };
+  });
+  const seen = new Set(listed.map((h) => h.author_slug).filter(Boolean));
+  const team = authors.filter((a) => isMarketing(a) && !seen.has(a.slug)).map((a) => ({
+    author_slug: a.slug, name: a.name, role: a.role_title || "Marketing", topics: "", booking_url: a.booking_url || "", email: a.contact_email || "",
+  }));
+  return [...listed, ...team];
+}
+function hostCards(hosts, authors) {
+  return hosts.map((h, i) => {
     const a = authors.find((x) => x.slug === h.author_slug);
     const person = { name: h.name || (a && a.name) || "Fershman member", avatar_url: (a && a.avatar_url) || "", slug: a && a.slug };
     const role = h.role || (a && a.role_title) || "";
@@ -131,9 +145,10 @@ function confirmationBox(s, rc, already) {
   </div>`;
 }
 
-function render({ rc, authors, sessions }) {
-  const st = applicationStatus(rc);
-  const hosts = hostCards(rc, authors);
+function render({ rc, authors, sessions, periods }) {
+  const st = applicationStatus(rc, new Date(), periods);
+  HOSTS = allHosts(rc, authors);
+  const hosts = hostCards(HOSTS, authors);
   setMeta({ title: "Apply", description: rc.lede });
   mount(main, html`<div class="container page apply">
     <section class="apply-hero">
@@ -264,7 +279,7 @@ function wire(rc, sessions) {
   main.addEventListener("click", (e) => {
     const b = e.target.closest("[data-book]");
     if (!b) return;
-    const h = rc.hosts[Number(b.dataset.book)];
+    const h = HOSTS[Number(b.dataset.book)];
     const url = safeUrl(h.booking_url);
     const embed = embedBooking(url);
     if (!embed || matchMedia("(max-width: 640px)").matches) { window.open(url, "_blank", "noopener"); return; }

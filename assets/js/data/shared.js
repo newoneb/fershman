@@ -7,7 +7,29 @@ export const ARTICLE_FIELDS = [
 ];
 export const CARD_COLUMNS =
   "id,slug,title,dek,section,topic,tags,cover_url,cover_alt,cover_caption,status,published_at,featured,big_read,author_id,view_count,created_by,created_at,updated_at";
-export const AUTHOR_FIELDS = ["slug", "name", "role_title", "team", "bio", "avatar_url", "x_url", "linkedin_url", "sort_order"];
+export const AUTHOR_FIELDS = ["slug", "name", "role_title", "team", "teams", "bio", "avatar_url", "x_url", "linkedin_url", "booking_url", "contact_email", "sort_order"];
+/** Fields people may edit on their own byline (teams and address stay with editors). */
+export const BYLINE_FIELDS = ["name", "role_title", "bio", "avatar_url", "x_url", "linkedin_url", "booking_url", "contact_email"];
+export const MARKETING = "Marketing";
+export const authorTeams = (a) => (a && Array.isArray(a.teams) && a.teams.length ? a.teams : [(a && a.team) || "Contributors"]);
+export const isMarketing = (a) => authorTeams(a).includes(MARKETING);
+/** Team order for display: config order, Marketing after Editors, then anything else in use. */
+export function teamList(configTeams = [], authors = []) {
+  const t = [...configTeams];
+  if (!t.includes(MARKETING)) { const i = t.indexOf("Editors"); t.splice(i >= 0 ? i + 1 : t.length, 0, MARKETING); }
+  authors.forEach((a) => authorTeams(a).forEach((x) => { if (!t.includes(x)) t.push(x); }));
+  return t;
+}
+/** Fill teams/team consistently; people with a marketing title join Marketing. */
+export function normalizeAuthor(a) {
+  const out = { ...a };
+  let teams = Array.isArray(out.teams) && out.teams.length ? [...out.teams] : out.team ? [out.team] : [];
+  if (!(Array.isArray(a.teams) && a.teams.length) && /marketing/i.test(out.role_title || "") && !teams.includes(MARKETING)) teams.push(MARKETING);
+  if (!teams.length) teams = ["Contributors"];
+  out.teams = [...new Set(teams)];
+  out.team = out.teams[0];
+  return out;
+}
 export const ROLES = ["pending", "member", "writer", "editor", "admin"];
 export const ROLE_LABELS = { pending: "Pending approval", member: "Member", writer: "Writer", editor: "Editor", admin: "Admin" };
 
@@ -254,8 +276,22 @@ export function mergeRecruiting(saved) {
 }
 
 /** open/closed state of applications from the recruiting settings. */
-export function applicationStatus(rc, now = new Date()) {
+const dayLabel = (d) => new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric" });
+export function activePeriod(periods = [], now = new Date()) {
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const active = periods.find((p) => p.starts_on <= today && today <= p.ends_on) || null;
+  const upcoming = periods.filter((p) => p.starts_on > today).sort((a, b) => a.starts_on.localeCompare(b.starts_on))[0] || null;
+  return { active, upcoming };
+}
+export function applicationStatus(rc, now = new Date(), periods = []) {
   if (rc.status === "closed") return { open: false, tone: "closed", label: "Applications are closed right now" };
+  const { active, upcoming } = activePeriod(periods, now);
+  if (rc.status !== "deadline" && active) {
+    return { open: true, tone: "open", period: active, label: `${active.title} is on`, sub: `Apply by ${dayLabel(active.ends_on)}` };
+  }
+  if (rc.status !== "deadline" && upcoming && (new Date(`${upcoming.starts_on}T12:00:00`) - now) < 45 * 86400000) {
+    return { open: true, tone: "open", label: "Applications open, reviewed on a rolling basis", sub: `${upcoming.title} starts ${dayLabel(upcoming.starts_on)}` };
+  }
   if (rc.status === "deadline" && rc.deadline) {
     const end = new Date(`${rc.deadline}T23:59:59`);
     const date = end.toLocaleDateString("en-US", { month: "long", day: "numeric" });

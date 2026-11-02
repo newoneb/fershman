@@ -2,23 +2,25 @@
 import { db, config } from "../data/db.js";
 import { html, raw, mount, icon, fmtDate, fmtDateTime, timeAgo, safeUrl, toLocalInput, fromLocalInput, debounce, $, $$ } from "../lib/util.js";
 import { toast, confirmDialog, openPanel, copyText, downloadFile } from "../lib/ui.js";
-import { roleAtLeast, friendlyError, mergeRecruiting, applicationStatus, STAGES, STAGE_LABELS } from "../data/shared.js";
+import { roleAtLeast, friendlyError, mergeRecruiting, applicationStatus, STAGES, STAGE_LABELS, isMarketing } from "../data/shared.js";
 
 const TABS = [
   { key: "applications", label: "Applications" },
   { key: "sessions", label: "Info sessions" },
-  { key: "chats", label: "Coffee chats" },
-  { key: "page", label: "Apply page" },
+  { key: "periods", label: "Recruiting periods" },
+  { key: "chats", label: "Coffee chats", editor: true },
+  { key: "page", label: "Apply page", editor: true },
 ];
 const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
 export async function recruiting(ctx) {
-  let tab = TABS.some((t) => t.key === ctx.query.tab) ? ctx.query.tab : "applications";
   const isAdmin = roleAtLeast(ctx.role, "admin");
+  const tabs = TABS.filter((t) => !t.editor || roleAtLeast(ctx.role, "editor"));
+  let tab = tabs.some((t) => t.key === ctx.query.tab) ? ctx.query.tab : "applications";
   mount(ctx.el, html`<div class="view">
     <div class="view-head"><div><h1>Recruiting</h1><p>Applications, info sessions and coffee chats for the <a href="/apply" target="_blank" rel="noopener">Apply page</a>.</p></div>
       <div class="view-actions"><a class="btn" href="/apply" target="_blank" rel="noopener">${icon("external")} View Apply page</a></div></div>
-    <div class="toolbar"><div class="seg" role="tablist" aria-label="Recruiting">${TABS.map((t) => html`<button type="button" role="tab" data-tab="${t.key}" aria-pressed="${t.key === tab}">${t.label}</button>`)}</div></div>
+    <div class="toolbar"><div class="seg" role="tablist" aria-label="Recruiting">${tabs.map((t) => html`<button type="button" role="tab" data-tab="${t.key}" aria-pressed="${t.key === tab}">${t.label}</button>`)}</div></div>
     <div id="rc-body"></div>
   </div>`);
   let body = $("#rc-body", ctx.el);
@@ -32,6 +34,7 @@ export async function recruiting(ctx) {
     try {
       if (tab === "applications") await applications(body, ctx);
       if (tab === "sessions") await sessions(body, ctx);
+      if (tab === "periods") await periods(body, ctx);
       if (tab === "chats") await chats(body, ctx, isAdmin);
       if (tab === "page") await pageSettings(body, ctx, isAdmin);
     } catch (err) {
@@ -268,6 +271,7 @@ function wireRepeaters(root, templates) {
 async function chats(el, ctx, isAdmin) {
   const [settings, authors] = await Promise.all([db.getSettings(), db.listAuthors()]);
   const rc = mergeRecruiting(settings.recruiting);
+  const team = authors.filter(isMarketing);
   const authorOptions = [{ value: "", label: "Someone else (type a name below)" }, ...authors.map((a) => ({ value: a.slug, label: a.name }))];
   const hosts = repeater("hosts", rc.hosts, [
     { name: "author_slug", label: "Member", type: "select", options: authorOptions },
@@ -284,6 +288,14 @@ async function chats(el, ctx, isAdmin) {
         <p>Each host shares a free booking page — <a href="https://calendly.com" target="_blank" rel="noopener">Calendly</a>, <a href="https://cal.com" target="_blank" rel="noopener">Cal.com</a>, or a Google Calendar appointment schedule. Those tools check the host's calendar, send confirmations and reminders, and handle rescheduling. Calendly and Google booking pages open inside the site; others open in a new tab. Hosts without a link get an "Email to schedule" button.</p></div>
       <label class="field"><span class="label">Intro shown above the hosts</span><textarea class="textarea" id="cc-intro" rows="2" style="min-height:64px">${rc.chatsIntro}</textarea></label>
     </section>
+    <section class="card table-card">
+      <div class="card-pad" style="padding-bottom:4px"><h2>Marketing team (listed automatically)</h2><p>Everyone on the Marketing team appears on the Apply page. They add their own booking link under <strong>My byline</strong>; editors change teams in Authors.</p></div>
+      ${team.length ? html`<table class="table table-responsive"><tbody>${team.map((a) => html`<tr>
+        <td data-cell="main"><div class="t-title" style="font-family:var(--sans)">${a.name}</div><div class="t-sub">${a.role_title || ""}</div></td>
+        <td class="small">${a.booking_url ? html`<span class="pill pill-published">Booking link set</span>` : a.contact_email ? html`<span class="pill">Email only</span>` : html`<span class="pill pill-review">No link or email yet</span>`}</td></tr>`)}</tbody></table>`
+        : html`<div class="table-empty">No one is on the Marketing team yet. Add them in Authors.</div>`}
+    </section>
+    <h2 style="font:650 1.0625rem/1.25 var(--sans);margin-top:6px">Extra hosts <span class="small muted">(optional, shown before the Marketing team)</span></h2>
     ${hosts.html}
     <div><button class="btn btn-accent" type="button" data-save-chats ${isAdmin ? "" : raw("disabled")}>Save coffee chats</button></div>
   </div>`);
@@ -365,4 +377,52 @@ async function pageSettings(el, ctx, isAdmin) {
       toast(`Apply page saved: ${applicationStatus(next).label}`);
     } catch (ex) { toast(friendlyError(ex), { error: true }); }
   });
+}
+
+// ---------------------------------------------------------------- Recruiting periods
+async function periods(el, ctx) {
+  let list = await db.listRecruitingPeriods();
+  const today = new Date().toISOString().slice(0, 10);
+  const draw = () => mount(el, html`
+    <div class="card card-pad stack" style="margin-bottom:16px">
+      <div><h2>Active recruiting periods</h2><p>Mark the weeks you're actively recruiting — posters up, info sessions running. During a period the Apply page leads with it (for example “Fall recruitment is on. Apply by October 16”). Applications stay open on a rolling basis outside these dates.</p></div>
+      <div class="field-row">
+        <label class="field"><span class="label">Name</span><input class="input" id="pr-title" placeholder="Fall recruitment"></label>
+        <label class="field"><span class="label">Note <span class="hint">(optional, internal)</span></span><input class="input" id="pr-note" placeholder="Posters up week 2"></label>
+      </div>
+      <div class="field-row">
+        <label class="field"><span class="label">Starts</span><input class="input" id="pr-start" type="date"></label>
+        <label class="field"><span class="label">Ends</span><input class="input" id="pr-end" type="date"></label>
+      </div>
+      <div><button class="btn btn-accent" type="button" data-add-period>${icon("plus")} Add period</button></div>
+    </div>
+    <div class="card table-card">${list.length ? html`<table class="table table-responsive"><thead><tr><th>Period</th><th>Dates</th><th>Status</th><th class="t-actions"><span class="sr-only">Actions</span></th></tr></thead><tbody>
+      ${list.map((p) => { const st = p.ends_on < today ? "Past" : p.starts_on > today ? "Upcoming" : "Active now";
+        return html`<tr data-id="${p.id}"><td data-cell="main"><div class="t-title">${p.title}</div>${p.note ? html`<div class="t-sub">${p.note}</div>` : ""}</td>
+          <td class="small">${fmtDate(p.starts_on + "T12:00:00")} to ${fmtDate(p.ends_on + "T12:00:00")}</td>
+          <td><span class="pill ${st === "Active now" ? "pill-published" : st === "Upcoming" ? "pill-scheduled" : ""}">${st}</span></td>
+          <td class="t-actions"><button class="icon-btn" type="button" data-del-period aria-label="Delete ${p.title}">${icon("trash")}</button></td></tr>`; })}
+    </tbody></table>` : html`<div class="table-empty"><strong>No recruiting periods yet</strong>Add the next one above.</div>`}</div>`);
+  el.addEventListener("click", async (e) => {
+    try {
+      if (e.target.closest("[data-add-period]")) {
+        const data = { title: $("#pr-title", el).value.trim(), note: $("#pr-note", el).value.trim() || null, starts_on: $("#pr-start", el).value, ends_on: $("#pr-end", el).value };
+        if (!data.title || !data.starts_on || !data.ends_on) { toast("Give the period a name, a start and an end date.", { error: true }); return; }
+        if (data.ends_on < data.starts_on) { toast("The end date is before the start date.", { error: true }); return; }
+        await db.saveRecruitingPeriod(data);
+        toast("Recruiting period added");
+        list = await db.listRecruitingPeriods();
+        draw();
+      }
+      const del = e.target.closest("[data-del-period]");
+      if (del) {
+        const p = list.find((x) => x.id === del.closest("tr").dataset.id);
+        if (!(await confirmDialog(`Delete “${p.title}”?`, { title: "Delete period", confirm: "Delete", danger: true }))) return;
+        await db.deleteRecruitingPeriod(p.id);
+        list = list.filter((x) => x.id !== p.id);
+        draw();
+      }
+    } catch (ex) { toast(friendlyError(ex), { error: true }); }
+  });
+  draw();
 }

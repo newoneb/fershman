@@ -3,7 +3,7 @@ import { db, LIVE, config } from "../data/db.js";
 import { html, raw, mount, icon, fmtDate, fmtDateTime, timeAgo, initials, safeUrl, slugify, fmtBytes, debounce, $, $$ } from "../lib/util.js";
 import { toast, confirmDialog, openPanel, copyText, downloadFile } from "../lib/ui.js";
 import { renderMarkdown } from "../lib/md.js";
-import { articleState, roleAtLeast, ROLES, ROLE_LABELS, friendlyError, itemKind, SETTINGS_DEFAULTS } from "../data/shared.js";
+import { articleState, roleAtLeast, ROLES, ROLE_LABELS, friendlyError, itemKind, SETTINGS_DEFAULTS, teamList, authorTeams, MARKETING } from "../data/shared.js";
 import { kindIcon, kindLabel, openUploadPanel, openViewer } from "../shared/portal-ui.js";
 
 const STATE_LABEL = { published: "Published", scheduled: "Scheduled", review: "In review", draft: "Draft" };
@@ -140,13 +140,15 @@ export async function authors(ctx) {
         <td data-cell="main"><div class="row" style="flex-wrap:nowrap">
           <span class="avatar">${safeUrl(a.avatar_url) ? html`<img src="${safeUrl(a.avatar_url)}" alt="" data-initials="${initials(a.name)}">` : initials(a.name)}</span>
           <div><div class="t-title">${a.name}</div><div class="t-sub">${a.role_title || ""}</div></div></div></td>
-        <td>${a.team || "Contributors"}</td>
+        <td class="small">${authorTeams(a).join(", ")}</td>
         <td data-cell="hide" class="small muted">/authors/${a.slug}</td>
         <td class="t-actions"><a class="icon-btn" href="/authors/${encodeURIComponent(a.slug)}" target="_blank" rel="noopener" aria-label="View ${a.name}'s page" data-stop>${icon("external")}</a></td>
       </tr>`)}</tbody>
     </table>` : html`<div class="table-empty"><strong>No authors yet</strong>Add your writers so their names appear on stories.</div>`);
   const edit = (author) => {
-    const a = author || { name: "", slug: "", role_title: "", team: "Analysts", bio: "", avatar_url: "", linkedin_url: "", x_url: "", sort_order: 100 };
+    const a = author || { name: "", slug: "", role_title: "", team: "Analysts", teams: ["Analysts"], bio: "", avatar_url: "", linkedin_url: "", x_url: "", booking_url: "", contact_email: "", sort_order: 100 };
+    const mine = authorTeams(a);
+    const allTeams = teamList(config.authorTeams, list);
     let slugTouched = Boolean(author);
     const p = openPanel({
       title: author ? `Edit ${author.name}` : "New author",
@@ -154,8 +156,11 @@ export async function authors(ctx) {
         <div class="field"><label for="au-n">Name</label><input class="input" id="au-n" value="${a.name}" required></div>
         <div class="field"><label for="au-s">Page address</label><input class="input" id="au-s" value="${a.slug}"><span class="hint slug-preview">/authors/<span data-slug>${a.slug}</span></span></div>
         <div class="field"><label for="au-r">Role or title</label><input class="input" id="au-r" value="${a.role_title || ""}" placeholder="Analyst, The Fershman Journal"></div>
+        <fieldset class="field" style="border:0;padding:0;margin:0"><legend class="label" style="margin-bottom:8px">Teams <span class="hint">(pick every position they hold)</span></legend>
+          <div class="chips">${allTeams.map((t) => html`<label class="chip"><input type="checkbox" data-team value="${t}" ${mine.includes(t) ? raw("checked") : ""}><span>${t}</span></label>`)}</div>
+          <span class="hint">Marketing can schedule info sessions and recruiting periods, and is listed on the Apply page for coffee chats.</span></fieldset>
         <div class="field-row">
-          <div class="field"><label for="au-t">Team</label><input class="input" id="au-t" list="au-teams" value="${a.team || ""}"><datalist id="au-teams">${config.authorTeams.map((t) => html`<option value="${t}">`)}</datalist></div>
+          <div class="field"><label for="au-t">Other team <span class="hint">(optional)</span></label><input class="input" id="au-t" placeholder="e.g. Research"></div>
           <div class="field"><label for="au-o">Order</label><input class="input" id="au-o" type="number" value="${a.sort_order ?? 100}"><span class="hint">Lower numbers appear first.</span></div>
         </div>
         <div class="field"><label for="au-b">Short bio</label><textarea class="textarea" id="au-b" rows="4">${a.bio || ""}</textarea></div>
@@ -166,6 +171,10 @@ export async function authors(ctx) {
         <div class="field-row">
           <div class="field"><label for="au-li">LinkedIn URL</label><input class="input" id="au-li" value="${a.linkedin_url || ""}"></div>
           <div class="field"><label for="au-x">X URL</label><input class="input" id="au-x" value="${a.x_url || ""}"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="au-bk">Coffee chat booking link</label><input class="input" id="au-bk" value="${a.booking_url || ""}" placeholder="https://calendly.com/…"></div>
+          <div class="field"><label for="au-ce">Public contact email</label><input class="input" id="au-ce" value="${a.contact_email || ""}" placeholder="Used if there's no booking link"></div>
         </div>
         <p class="form-error" role="alert"></p>`.value,
       foot: html`${author && isAdmin ? html`<button class="btn btn-danger" type="button" data-del>Delete</button><span class="spacer"></span>` : ""}<button class="btn" type="button" data-close>Cancel</button><button class="btn btn-accent" type="button" data-save>${author ? "Save changes" : "Add author"}</button>`.value,
@@ -184,11 +193,19 @@ export async function authors(ctx) {
       if (e.target.closest("[data-save]")) {
         const data = {
           id: author && author.id, name: nameI.value.trim(), slug: slugify(slugI.value) || slugify(nameI.value),
-          role_title: $("#au-r", r).value.trim() || null, team: $("#au-t", r).value.trim() || "Contributors",
+          role_title: $("#au-r", r).value.trim() || null,
+          teams: (() => { // keep existing positions first, then newly added ones
+            const checked = $$("[data-team]:checked", r).map((c) => c.value);
+            const extra = $("#au-t", r).value.trim();
+            return [...new Set([...mine.filter((t) => checked.includes(t)), ...checked, ...(extra ? [extra] : [])])];
+          })(),
+          booking_url: $("#au-bk", r).value.trim() || null, contact_email: $("#au-ce", r).value.trim() || null,
           sort_order: Number($("#au-o", r).value) || 100, bio: $("#au-b", r).value.trim() || null,
           avatar_url: $("#au-a", r).value.trim() || null, linkedin_url: $("#au-li", r).value.trim() || null, x_url: $("#au-x", r).value.trim() || null,
         };
         if (!data.name) { $(".form-error", r).textContent = "Enter the author's name."; return; }
+        if (!data.teams.length) data.teams = ["Contributors"];
+        if (data.booking_url && !/^https:\/\//i.test(data.booking_url)) { $(".form-error", r).textContent = "The booking link should start with https://"; return; }
         try { await db.saveAuthor(data); toast(author ? "Author saved" : "Author added"); p.close(); reload(); }
         catch (ex) { $(".form-error", r).textContent = friendlyError(ex); }
       }
@@ -575,4 +592,58 @@ export async function settings(ctx) {
     }
   });
   loadPage();
+}
+
+// ---------------------------------------------------------------- My byline
+export async function byline(ctx) {
+  const id = ctx.session.profile.author_id;
+  const authors = await db.listAuthors();
+  const a = authors.find((x) => x.id === id);
+  if (!a) {
+    mount(ctx.el, html`<div class="view">${head("My byline", "Your public author profile.")}
+      <div class="card card-pad"><h2>Your account isn't linked to a byline yet</h2><p>Ask an admin to choose your name under <strong>Byline</strong> in Members. Then you can edit your bio, photo and coffee chat link here.</p></div></div>`);
+    return;
+  }
+  const marketing = authorTeams(a).includes(MARKETING);
+  mount(ctx.el, html`<div class="view">
+    ${head("My byline", "What readers and applicants see on your author page.", html`<a class="btn" href="/authors/${encodeURIComponent(a.slug)}" target="_blank" rel="noopener">${icon("external")} View my page</a>`)}
+    <div class="grid-2">
+      <section class="card card-pad stack">
+        <div class="field"><label for="my-n">Name</label><input class="input" id="my-n" value="${a.name}"></div>
+        <div class="field"><label for="my-r">Title</label><input class="input" id="my-r" value="${a.role_title || ""}"></div>
+        <div class="field"><label for="my-b">Short bio</label><textarea class="textarea" id="my-b" rows="5">${a.bio || ""}</textarea></div>
+        <div class="field"><span class="label">Photo</span>
+          <div class="row"><span class="avatar avatar-md" data-av>${safeUrl(a.avatar_url) ? html`<img src="${safeUrl(a.avatar_url)}" alt="">` : initials(a.name)}</span>
+            <label class="btn btn-sm">${icon("upload")} Upload<input type="file" accept="image/*" hidden data-file></label></div>
+          <input class="input" id="my-a" value="${a.avatar_url || ""}" placeholder="…or paste an image URL"></div>
+        <div class="field-row">
+          <div class="field"><label for="my-li">LinkedIn URL</label><input class="input" id="my-li" value="${a.linkedin_url || ""}"></div>
+          <div class="field"><label for="my-x">X URL</label><input class="input" id="my-x" value="${a.x_url || ""}"></div>
+        </div>
+        <p class="form-error" role="alert"></p>
+        <div><button class="btn btn-accent" type="button" data-save>Save my byline</button></div>
+      </section>
+      <section class="card card-pad stack">
+        <h2>Coffee chats</h2>
+        <p>${marketing ? "You're on the Marketing team, so the Apply page lists you for coffee chats. Add a booking link so applicants can pick a time." : "Coffee chats on the Apply page list the Marketing team. You can still add a link in case an admin lists you."}</p>
+        <p class="small muted">Teams: ${authorTeams(a).join(", ")}. Editors change teams.</p>
+        <div class="field"><label for="my-bk">Booking link</label><input class="input" id="my-bk" value="${a.booking_url || ""}" placeholder="https://calendly.com/you/coffee-chat"><span class="hint">Free options: Calendly, Cal.com, or a Google Calendar appointment schedule.</span></div>
+        <div class="field"><label for="my-ce">Public contact email</label><input class="input" id="my-ce" value="${a.contact_email || ""}" placeholder="Shown as “Email to schedule” if there's no link"></div>
+      </section>
+    </div>
+  </div>`);
+  $("[data-file]", ctx.el).addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { const url = await db.uploadMedia(f); $("#my-a", ctx.el).value = url; $("[data-av]", ctx.el).innerHTML = html`<img src="${url}" alt="">`.value; }
+    catch (ex) { toast(friendlyError(ex), { error: true }); }
+  });
+  $("[data-save]", ctx.el).addEventListener("click", async () => {
+    const v = (x) => $(x, ctx.el).value.trim();
+    const patch = { name: v("#my-n") || a.name, role_title: v("#my-r") || null, bio: v("#my-b") || null, avatar_url: v("#my-a") || null,
+      linkedin_url: v("#my-li") || null, x_url: v("#my-x") || null, booking_url: v("#my-bk") || null, contact_email: v("#my-ce") || null };
+    if (patch.booking_url && !/^https:\/\//i.test(patch.booking_url)) { $(".form-error", ctx.el).textContent = "The booking link should start with https://"; return; }
+    try { await db.updateMyByline(patch); toast("Byline saved"); }
+    catch (ex) { $(".form-error", ctx.el).textContent = friendlyError(ex); }
+  });
 }

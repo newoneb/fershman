@@ -2,6 +2,7 @@
 // enforced by Row Level Security in supabase/schema.sql — this file only asks.
 import { uid, slugify } from "../lib/util.js";
 import {
+  normalizeAuthor, BYLINE_FIELDS,
   CARD_COLUMNS, SETTINGS_DEFAULTS, cleanArticle, sortAuthors, pick, AUTHOR_FIELDS,
   safeFileName, guessMime, roleAtLeast,
 } from "./shared.js";
@@ -129,7 +130,10 @@ export async function createLiveAdapter(config) {
       const s = data && data.session;
       if (!s) return null;
       const profile = await profileFor(s.user);
-      return { user: { id: s.user.id, email: s.user.email }, profile };
+      if (profileCache && profileCache.recruiter === undefined) {
+        try { profileCache.recruiter = Boolean((await sb.rpc("is_recruiter")).data); } catch (_) { profileCache.recruiter = false; }
+      }
+      return { user: { id: s.user.id, email: s.user.email }, profile, recruiter: Boolean(profileCache && profileCache.recruiter) };
     },
     onAuthChange(cb) {
       const { data } = sb.auth.onAuthStateChange((event) => {
@@ -205,7 +209,7 @@ export async function createLiveAdapter(config) {
 
     // ---------- Staff: authors ----------
     async saveAuthor(input) {
-      const row = pick(input, AUTHOR_FIELDS);
+      const row = normalizeAuthor(pick(input, AUTHOR_FIELDS));
       row.slug = row.slug || slugify(row.name);
       const q = input.id ? sb.from("authors").update(row).eq("id", input.id) : sb.from("authors").insert(row);
       const saved = unwrap(await q.select().single());
@@ -217,7 +221,7 @@ export async function createLiveAdapter(config) {
       authorsPromise = null;
     },
     async importAuthors(list) {
-      const rows = list.map((a) => pick(a, AUTHOR_FIELDS));
+      const rows = list.map((a) => normalizeAuthor(pick(a, AUTHOR_FIELDS)));
       unwrap(await sb.from("authors").upsert(rows, { onConflict: "slug" }));
       authorsPromise = null;
       return api.listAuthors();
@@ -271,7 +275,7 @@ export async function createLiveAdapter(config) {
         roleAtLeast(r, "editor") ? head(sb.from("messages").select("id", { count: "exact", head: true }).eq("status", "new")) : 0,
         roleAtLeast(r, "admin") ? head(sb.from("profiles").select("id", { count: "exact", head: true }).eq("role", "pending")) : 0,
       ]);
-      const newApplications = roleAtLeast(r, "editor") ? await head(sb.from("messages").select("id", { count: "exact", head: true }).eq("kind", "application").eq("stage", "new")) : 0;
+      const newApplications = s ? await head(sb.from("messages").select("id", { count: "exact", head: true }).eq("kind", "application").eq("stage", "new")) : 0;
       return { published, scheduled, review, drafts, subscribers, newMessages, pending, newApplications };
     },
 
@@ -344,6 +348,25 @@ export async function createLiveAdapter(config) {
     },
     async deleteRegistration(id) {
       unwrap(await sb.from("session_registrations").delete().eq("id", id));
+    },
+    async listRecruitingPeriods() {
+      return unwrap(await sb.from("recruiting_periods").select("*").order("starts_on", { ascending: false })) || [];
+    },
+    async saveRecruitingPeriod(input) {
+      const row = pick(input, ["title", "starts_on", "ends_on", "note"]);
+      const q = input.id ? sb.from("recruiting_periods").update(row).eq("id", input.id) : sb.from("recruiting_periods").insert(row);
+      return unwrap(await q.select().single());
+    },
+    async deleteRecruitingPeriod(id) {
+      unwrap(await sb.from("recruiting_periods").delete().eq("id", id));
+    },
+    async updateMyByline(patch) {
+      const s = await api.getSession();
+      const id = s && s.profile.author_id;
+      if (!id) throw new Error("Your account isn't linked to a byline yet. Ask an admin to link it in Members.");
+      const saved = unwrap(await sb.from("authors").update(pick(patch, BYLINE_FIELDS)).eq("id", id).select().single());
+      authorsPromise = null;
+      return saved;
     },
   };
   return api;
