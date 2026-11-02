@@ -125,47 +125,6 @@ async function submit() {
   });
 }
 
-async function apply() {
-  setMeta({ title: "Apply to join", description: "Join The Fershman Journal as a writer, analyst or editor." });
-  const settings = await db.getSettings();
-  mount(main, html`<div class="container page">
-    <header class="page-head"><h1>Join The Fershman Journal</h1><p>We're looking for sharp, analytical students who want to research and write about markets, deals and the economy.</p></header>
-    <div class="page-grid">
-      <div>
-        <div class="prose">${raw(renderMarkdown(settings.apply_md))}</div>
-        ${S.applyContacts && S.applyContacts.length ? html`
-          <div class="panel" style="margin-top:28px"><h2>Questions or a coffee chat?</h2><p>Email us directly.</p>
-            <ul class="contact-list">${S.applyContacts.map((e) => html`<li><a href="mailto:${e}">${e}</a></li>`)}</ul></div>` : ""}
-      </div>
-      <section class="form-card" aria-labelledby="apply-h">
-        <h2 id="apply-h">Application</h2>
-        <p>Takes about five minutes. We review applications on a rolling basis each quarter.</p>
-        <form class="form" novalidate>
-          <div class="field-row">
-            <div class="field"><label for="a-name">Full name</label><input class="input" id="a-name" name="name" required data-label="Full name" autocomplete="name"></div>
-            <div class="field"><label for="a-email">Email</label><input class="input" id="a-email" name="email" type="email" required data-label="Email" autocomplete="email"></div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label for="a-year">Year</label><select class="select" id="a-year" name="year"><option>First year</option><option>Second year</option><option>Third year</option><option>Fourth year</option><option>Graduate student</option><option>Other</option></select></div>
-            <div class="field"><label for="a-major">Major(s)</label><input class="input" id="a-major" name="major"></div>
-          </div>
-          <div class="field"><label for="a-role">I'm most interested in</label>
-            <select class="select" id="a-role" name="role"><option>Writing & analysis</option><option>Editing a section</option><option>Research & risk reports</option><option>Marketing & partnerships</option><option>Technology</option><option>Teaching (Learn Economics)</option></select></div>
-          <div class="field"><label for="a-why">Why Fershman? What would you write about first?</label><textarea class="textarea" id="a-why" name="body" required data-label="Why Fershman?" rows="7"></textarea></div>
-          <div class="field"><label for="a-sample">Writing sample or résumé link <span class="hint">(optional)</span></label><input class="input" id="a-sample" name="sample" type="url" placeholder="https://"></div>
-          ${honeypot}
-          <p class="form-error" role="alert"></p>
-          <div><button class="btn btn-accent" type="submit">Submit application</button></div>
-        </form>
-      </section>
-    </div>
-  </div>`);
-  wireForm($("form"), {
-    send: (v) => db.sendMessage({ kind: "application", name: v.name, email: v.email, subject: `${v.role} — ${v.year}`, body: v.body, data: { year: v.year, major: v.major, role: v.role, sample: v.sample } }),
-    success: { title: "Application received", text: "Thank you. We'll email you about next steps." },
-  });
-}
-
 async function subscribe() {
   setMeta({ title: "Subscribe", description: "Get The Fershman Journal's analysis in your inbox." });
   const benefit = (t) => html`<li>${icon("check")}<span>${t}</span></li>`;
@@ -258,7 +217,7 @@ function notFound() {
   </div>`);
 }
 
-const routes = { about, submit, apply, subscribe, contact, privacy, notfound: notFound };
+const routes = { about, submit, subscribe, contact, privacy, notfound: notFound };
 try {
   await (routes[page] || notFound)();
 } catch (err) {

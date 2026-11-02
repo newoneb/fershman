@@ -77,6 +77,16 @@ export async function createDemoAdapter(config) {
     };
     writeLS(DB_KEY, state);
   }
+  if (!state.sessions) {
+    // Sample info sessions, dated relative to today so they're always upcoming.
+    const at = (days, hour) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(hour, 0, 0, 0); return d.toISOString(); };
+    state.sessions = [
+      { id: uid(), title: "Info session: how Fershman works (sample)", description: "Sections, editing, publishing and what new members do in their first quarter.", starts_at: at(5, 18), duration_min: 60, location: "On campus (room sent on registration)", join_url: "", capacity: 40, is_published: true, created_at: new Date().toISOString() },
+      { id: uid(), title: "Virtual info session (sample)", description: "The same session online, for anyone who can't make it in person.", starts_at: at(12, 19), duration_min: 45, location: "Online", join_url: "https://example.com/meeting", capacity: null, is_published: true, created_at: new Date().toISOString() },
+    ];
+    state.registrations = [];
+    writeLS(DB_KEY, state);
+  }
   const save = () => {
     if (!writeLS(DB_KEY, state)) throw new Error("Demo storage in this browser is full. Connect Supabase, or reset the demo in Admin → Settings.");
   };
@@ -166,7 +176,7 @@ export async function createDemoAdapter(config) {
 
     // ---------- Public writes ----------
     async sendMessage({ kind, name, email, subject, body, data }) {
-      state.messages.unshift({ id: uid(), kind, name, email, subject: subject || null, body: body || "", data: data || {}, status: "new", created_at: nowISO() });
+      state.messages.unshift({ id: uid(), kind, name, email, subject: subject || null, body: body || "", data: data || {}, status: "new", stage: "new", created_at: nowISO() });
       save();
     },
     async subscribe({ email, name, source }) {
@@ -339,7 +349,7 @@ export async function createDemoAdapter(config) {
     async updateMessage(id, patch) {
       need("editor");
       const m = state.messages.find((x) => x.id === id);
-      if (m) Object.assign(m, pick(patch, ["status"]));
+      if (m) Object.assign(m, pick(patch, ["status", "stage"]));
       save();
     },
     async deleteMessage(id) { need("editor"); state.messages = state.messages.filter((m) => m.id !== id); save(); },
@@ -355,6 +365,7 @@ export async function createDemoAdapter(config) {
         subscribers: roleAtLeast(role(), "admin") ? state.subscribers.length : 0,
         newMessages: roleAtLeast(role(), "editor") ? state.messages.filter((m) => m.status === "new").length : 0,
         pending: roleAtLeast(role(), "admin") ? state.profiles.filter((p) => p.role === "pending").length : 0,
+        newApplications: roleAtLeast(role(), "editor") ? state.messages.filter((m) => m.kind === "application" && (m.stage || "new") === "new").length : 0,
       };
     },
 
@@ -408,6 +419,62 @@ export async function createDemoAdapter(config) {
       const blob = await fileGet(item.file_path);
       if (!blob) throw new Error("This demo file is no longer stored in this browser.");
       return URL.createObjectURL(blob);
+    },
+
+    // ---------- Recruiting ----------
+    async listInfoSessions() {
+      const now = Date.now();
+      return state.sessions
+        .filter((x) => x.is_published && new Date(x.starts_at).getTime() + x.duration_min * 60000 > now)
+        .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
+        .map(({ join_url, ...rest }) => ({ ...rest, is_online: Boolean(join_url), registered: state.registrations.filter((r) => r.session_id === rest.id).length }));
+    },
+    async registerForSession(sessionId, { name, email, year, note }) {
+      const e = String(email || "").trim().toLowerCase();
+      if (!String(name || "").trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { status: "invalid" };
+      const x = state.sessions.find((y) => y.id === sessionId);
+      if (!x || !x.is_published || new Date(x.starts_at).getTime() + x.duration_min * 60000 <= Date.now()) return { status: "closed" };
+      const details = { id: x.id, title: x.title, description: x.description, starts_at: x.starts_at, duration_min: x.duration_min, location: x.location, join_url: x.join_url };
+      const regs = state.registrations.filter((r) => r.session_id === x.id);
+      if (regs.some((r) => r.email === e)) return { ...details, status: "already" };
+      if (x.capacity && regs.length >= x.capacity) return { status: "full" };
+      state.registrations.push({ id: uid(), session_id: x.id, name: String(name).trim(), email: e, year: year || null, note: note || null, created_at: nowISO() });
+      save();
+      return { ...details, status: "registered" };
+    },
+    async adminListInfoSessions() {
+      need("editor");
+      return clone(state.sessions).sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
+        .map((x) => ({ ...x, registered: state.registrations.filter((r) => r.session_id === x.id).length }));
+    },
+    async saveInfoSession(input) {
+      need("editor");
+      const row = pick(input, ["title", "description", "starts_at", "duration_min", "location", "join_url", "capacity", "is_published"]);
+      if (input.id) {
+        const cur = state.sessions.find((x) => x.id === input.id);
+        Object.assign(cur, row);
+        save();
+        return clone(cur);
+      }
+      const rec = { id: uid(), description: null, duration_min: 60, location: null, join_url: null, capacity: null, is_published: true, ...row, created_at: nowISO() };
+      state.sessions.push(rec);
+      save();
+      return clone(rec);
+    },
+    async deleteInfoSession(id) {
+      need("editor");
+      state.sessions = state.sessions.filter((x) => x.id !== id);
+      state.registrations = state.registrations.filter((r) => r.session_id !== id);
+      save();
+    },
+    async listRegistrations(sessionId) {
+      need("editor");
+      return clone(state.registrations.filter((r) => r.session_id === sessionId));
+    },
+    async deleteRegistration(id) {
+      need("editor");
+      state.registrations = state.registrations.filter((r) => r.id !== id);
+      save();
     },
 
     // ---------- Demo-only helpers ----------

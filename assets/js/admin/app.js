@@ -12,6 +12,7 @@ const NAV = [
   { key: "authors", label: "Authors", icon: "users", min: "editor" },
   { key: "portal", label: "Member portal", icon: "folder", min: "editor" },
   { key: "inbox", label: "Inbox", icon: "inbox", min: "editor", badge: (c) => c.newMessages },
+  { key: "recruiting", label: "Recruiting", icon: "calendar", min: "editor", badge: (c) => c.newApplications },
   { key: "members", label: "Members", icon: "user", min: "admin", badge: (c) => c.pending },
   { key: "subscribers", label: "Subscribers", icon: "mail", min: "admin" },
   { key: "import", label: "Import", icon: "upload", min: "editor" },
@@ -111,7 +112,10 @@ async function route() {
   const item = NAV.find((n) => n.key === key);
   const role = session.profile.role;
   $$(".app-nav [data-nav]").forEach((a) => { if (a.dataset.nav === key) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
-  const el = $("#view");
+  // Fresh container per view so event listeners from the previous view can't fire here.
+  const prev = $("#view");
+  const el = prev.cloneNode(false);
+  prev.replaceWith(el);
   leaveGuard = null;
   if (!item || !roleAtLeast(role, item.min)) {
     mount(el, html`<div class="view"><div class="card card-pad"><h2>That page isn't available</h2><p>Your role (${ROLE_LABELS[role]}) doesn't include it.</p><p style="margin-top:12px"><a class="btn" href="#/dashboard">Go to the dashboard</a></p></div></div>`);
@@ -123,6 +127,9 @@ async function route() {
     if (key === "articles" && parts[1]) {
       const m = await import("./editor.js");
       await m.editor(ctx, parts[1]);
+    } else if (key === "recruiting") {
+      const m = await import("./recruiting.js");
+      await m.recruiting(ctx);
     } else if (key === "import") {
       const m = await import("./import.js");
       await m.importView(ctx);

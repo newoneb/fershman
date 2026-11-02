@@ -161,8 +161,27 @@ Google Slides or Drive link instead.
 - **Inbox:** article submissions, applications and contact messages from the public forms.
 - **Subscribers:** sign-ups from `/register`. **Export CSV** and import the list into
   Mailchimp, Beehiiv, Buttondown or Substack to send the newsletter.
-- **Settings:** the green announcement bar, and the text of the About, Submit, Apply and
+- **Settings:** the green announcement bar, and the text of the About, Submit and
   Privacy pages.
+
+### Recruiting and the Apply page
+
+**Admin → Recruiting** runs everything on `/apply`:
+
+- **Applications:** every application with its answers, story pitch and links. Move people
+  through stages (New → Reviewing → Interview → Accepted / Declined) and export a CSV.
+- **Info sessions:** add a date, place, optional capacity and an optional meeting link. People
+  register on the Apply page, get Google Calendar and .ics buttons, and see the meeting link
+  only after registering. Open a session to see who's coming, copy their emails or export them.
+- **Coffee chats:** list the members who host chats and paste each one's booking page
+  (Calendly, Cal.com or a Google Calendar appointment schedule — all have free plans).
+  Those tools send confirmations and reminders and handle rescheduling. Hosts without a link
+  get an "Email to schedule" button.
+- **Apply page:** open with rolling review, open until a deadline, or closed (visitors can ask
+  to be notified). Edit the headline, highlights, steps, roles, what you look for and the FAQ.
+
+If you set the site up before November 2026, re-run `supabase/schema.sql` once in the
+Supabase SQL editor to add the recruiting tables. It keeps all existing data.
 
 ## Customizing
 

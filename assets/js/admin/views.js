@@ -434,7 +434,7 @@ export async function settings(ctx) {
   const ann = s.announcement || {};
   const pages = [
     { key: "about_md", label: "About page" }, { key: "submit_md", label: "Submit guidelines" },
-    { key: "apply_md", label: "Apply page" }, { key: "privacy_md", label: "Privacy policy" },
+    { key: "privacy_md", label: "Privacy policy" },
   ];
   let pageKey = pages[0].key;
   let previewOn = false;

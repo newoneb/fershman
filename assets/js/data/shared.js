@@ -192,3 +192,76 @@ You can unsubscribe from the newsletter at any time, and you can ask us to delet
 
 Questions about this policy? Email the address on our [contact page](/contact).`,
 };
+
+// ---------------------------------------------------------------- Recruiting
+export const STAGES = ["new", "reviewing", "interview", "accepted", "declined"];
+export const STAGE_LABELS = { new: "New", reviewing: "Reviewing", interview: "Interview", accepted: "Accepted", declined: "Declined" };
+
+/** Defaults for the Apply page. Everything here is editable in Admin → Recruiting. */
+export const RECRUITING_DEFAULTS = {
+  status: "rolling", // rolling | deadline | closed
+  deadline: "",
+  timezone: "America/Chicago",
+  headline: "Join The Fershman Journal",
+  lede: "Research, write and publish analysis on markets, deals and policy, with editors who make your work sharper. Applications are reviewed on a rolling basis, so apply whenever you're ready.",
+  highlights: [
+    { title: "Rolling review", text: "No deadline. We read every application as it arrives." },
+    { title: "No experience required", text: "Curiosity and evidence-backed thinking matter more than a finance background." },
+    { title: "Join any quarter", text: "New members start in Fall, Winter and Spring." },
+  ],
+  steps: [
+    { title: "Have a coffee chat", text: "Optional. Talk with a current member about what writing for Fershman is actually like." },
+    { title: "Come to an info session", text: "Recommended. Learn how sections, editing and publishing work, and meet the editors." },
+    { title: "Apply", text: "Tell us why Fershman, pitch a story you'd write, and share a writing sample if you have one." },
+    { title: "Hear back", text: "We review applications on a rolling basis and reply to everyone by email." },
+  ],
+  roles: [
+    { title: "Writer & analyst", text: "Research and publish analysis on markets, M&A, corporate strategy and macro." },
+    { title: "Section editor", text: "Shape a section's coverage and edit writers' drafts." },
+    { title: "Research", text: "Build the data and models behind our quarterly U.S. risk reports." },
+    { title: "Marketing & partnerships", text: "Grow the readership, run events and build relationships with partners." },
+    { title: "Technology", text: "Build and maintain the site, data tools and members portal." },
+    { title: "Teaching", text: "Write Learn Economics lessons and help run free workshops." },
+  ],
+  lookFor: [
+    "Curiosity about why markets and companies behave the way they do",
+    "Arguments backed by evidence, not adjectives",
+    "Clear writing, or the drive to get there with editing",
+    "Follow-through: you'll see a piece from pitch to publication",
+  ],
+  chatsIntro: "Informal conversations with current members. Ask anything about writing, editing or how the journal works.",
+  hosts: [
+    { author_slug: "eliazar", name: "Eliazar Marchenko", role: "Chief Executive Officer, Founder", topics: "", booking_url: "", email: "eliazar@uchicago.edu" },
+    { author_slug: "samuel-regelman", name: "Samuel Regelman", role: "Analyst and Marketing Co-Director", topics: "", booking_url: "", email: "regelman@uchicago.edu" },
+  ],
+  sessionsIntro: "Hear how the journal works, meet the editors and get your questions answered.",
+  faq: [
+    { q: "Do I need finance or writing experience?", a: "No. We look for genuine interest in research-driven analysis. Editors work closely with every new writer." },
+    { q: "What does \"rolling basis\" mean?", a: "There's no single deadline. We review applications as they come in throughout the year and reply by email." },
+    { q: "Are coffee chats and info sessions required?", a: "No, but they're the best way to understand the role and meet the people you'd work with." },
+    { q: "Can I apply for more than one role?", a: "Yes. Select every role you're interested in and we'll talk through the fit." },
+    { q: "I applied before. Can I apply again?", a: "Yes. Tell us what's changed since your last application." },
+  ],
+  confirmation: "We'll read your application and reply by email. In the meantime, come to an info session or book a coffee chat.",
+};
+
+export function mergeRecruiting(saved) {
+  const out = { ...RECRUITING_DEFAULTS };
+  if (saved && typeof saved === "object") {
+    for (const k of Object.keys(RECRUITING_DEFAULTS)) if (saved[k] !== undefined && saved[k] !== null) out[k] = saved[k];
+  }
+  return out;
+}
+
+/** open/closed state of applications from the recruiting settings. */
+export function applicationStatus(rc, now = new Date()) {
+  if (rc.status === "closed") return { open: false, tone: "closed", label: "Applications are closed right now" };
+  if (rc.status === "deadline" && rc.deadline) {
+    const end = new Date(`${rc.deadline}T23:59:59`);
+    const date = end.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+    if (end < now) return { open: false, tone: "closed", label: `Applications closed on ${date}` };
+    const days = Math.ceil((end - now) / 86400000);
+    return { open: true, tone: "open", label: `Applications open until ${date}`, sub: days <= 14 ? `${days} day${days === 1 ? "" : "s"} left` : "" };
+  }
+  return { open: true, tone: "open", label: "Applications open, reviewed on a rolling basis" };
+}

@@ -236,7 +236,7 @@ export async function createLiveAdapter(config) {
       return unwrap(await sb.from("messages").select("*").order("created_at", { ascending: false }).limit(1000));
     },
     async updateMessage(id, patch) {
-      unwrap(await sb.from("messages").update(pick(patch, ["status"])).eq("id", id));
+      unwrap(await sb.from("messages").update(pick(patch, ["status", "stage"])).eq("id", id));
     },
     async deleteMessage(id) {
       unwrap(await sb.from("messages").delete().eq("id", id));
@@ -271,7 +271,8 @@ export async function createLiveAdapter(config) {
         roleAtLeast(r, "editor") ? head(sb.from("messages").select("id", { count: "exact", head: true }).eq("status", "new")) : 0,
         roleAtLeast(r, "admin") ? head(sb.from("profiles").select("id", { count: "exact", head: true }).eq("role", "pending")) : 0,
       ]);
-      return { published, scheduled, review, drafts, subscribers, newMessages, pending };
+      const newApplications = roleAtLeast(r, "editor") ? await head(sb.from("messages").select("id", { count: "exact", head: true }).eq("kind", "application").eq("stage", "new")) : 0;
+      return { published, scheduled, review, drafts, subscribers, newMessages, pending, newApplications };
     },
 
     // ---------- Media (public bucket) ----------
@@ -317,6 +318,32 @@ export async function createLiveAdapter(config) {
       const opts = download ? { download: item.file_name || true } : undefined;
       const data = unwrap(await sb.storage.from("portal").createSignedUrl(item.file_path, 60 * 60, opts));
       return data.signedUrl;
+    },
+
+    // ---------- Recruiting ----------
+    async listInfoSessions() {
+      return unwrap(await sb.rpc("info_sessions_public")) || [];
+    },
+    async registerForSession(sessionId, { name, email, year, note }) {
+      return unwrap(await sb.rpc("register_for_session", { p_session: sessionId, p_name: name, p_email: email, p_year: year || null, p_note: note || null }));
+    },
+    async adminListInfoSessions() {
+      const rows = unwrap(await sb.from("info_sessions").select("*, session_registrations(count)").order("starts_at", { ascending: false }));
+      return (rows || []).map(({ session_registrations: c, ...rest }) => ({ ...rest, registered: (c && c[0] && c[0].count) || 0 }));
+    },
+    async saveInfoSession(input) {
+      const row = pick(input, ["title", "description", "starts_at", "duration_min", "location", "join_url", "capacity", "is_published"]);
+      const q = input.id ? sb.from("info_sessions").update(row).eq("id", input.id) : sb.from("info_sessions").insert(row);
+      return unwrap(await q.select().single());
+    },
+    async deleteInfoSession(id) {
+      unwrap(await sb.from("info_sessions").delete().eq("id", id));
+    },
+    async listRegistrations(sessionId) {
+      return unwrap(await sb.from("session_registrations").select("*").eq("session_id", sessionId).order("created_at"));
+    },
+    async deleteRegistration(id) {
+      unwrap(await sb.from("session_registrations").delete().eq("id", id));
     },
   };
   return api;
