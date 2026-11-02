@@ -81,7 +81,7 @@ export async function articles(ctx) {
     ${head("Articles", roleAtLeast(ctx.role, "editor") ? "Everything in the journal, newest edits first." : "Your drafts and submissions.", html`<a class="btn btn-accent" href="#/articles/new">${icon("plus")} New article</a>`)}
     <div class="toolbar">
       <div class="seg" role="group" aria-label="Filter by status">
-        ${tabs.map((t) => html`<button type="button" data-status="${t}" aria-pressed="${t === status}">${t === "all" ? "All" : STATE_LABEL[t]} <span class="n">${count(t)}</span></button>`)}
+        ${tabs.map((t) => html`<button type="button" data-status="${t}" aria-pressed="${t === status ? "true" : "false"}">${t === "all" ? "All" : STATE_LABEL[t]} <span class="n">${count(t)}</span></button>`)}
       </div>
       <input class="input search" type="search" placeholder="Search titles" aria-label="Search titles" data-q>
       <select class="select" data-section aria-label="Filter by section"><option value="">All sections</option>${config.sections.map((s) => html`<option value="${s.slug}">${s.name}</option>`)}<option value="learn">${config.learn.name}</option></select>
@@ -272,7 +272,7 @@ export async function inbox(ctx) {
     ${head("Inbox", "Submissions, applications and messages from the public site.")}
     <div class="toolbar">
       <div class="seg" role="group" aria-label="Filter messages">
-        ${["all", "submission", "application", "contact"].map((k) => html`<button type="button" data-kind="${k}" aria-pressed="${k === kind}">${k === "all" ? "All" : KIND_LABEL[k] + "s"}</button>`)}
+        ${["all", "submission", "application", "contact"].map((k) => html`<button type="button" data-kind="${k}" aria-pressed="${k === kind ? "true" : "false"}">${k === "all" ? "All" : KIND_LABEL[k] + "s"}</button>`)}
       </div>
       <label class="toggle"><input type="checkbox" data-archived><span class="track"></span>Show archived</label>
     </div>
@@ -282,7 +282,7 @@ export async function inbox(ctx) {
   const drawList = () => {
     const rows = visible();
     mount("#list", rows.length ? rows.map((m) => html`
-      <li class="msg-item ${m.status === "new" ? "unread" : ""}" role="option" tabindex="0" data-id="${m.id}" aria-selected="${selected && selected.id === m.id}">
+      <li class="msg-item ${m.status === "new" ? "unread" : ""}" role="option" tabindex="0" data-id="${m.id}" aria-selected="${(selected && selected.id === m.id) ? "true" : "false"}">
         <div class="who">${m.name || m.email}<time>${timeAgo(m.created_at)}</time></div>
         <div class="subj">${KIND_LABEL[m.kind] || m.kind}: ${m.subject || "(no subject)"}</div>
         <div class="snip">${(m.body || "").slice(0, 120)}</div>
@@ -469,7 +469,7 @@ export async function settings(ctx) {
       <section class="card card-pad stack" aria-labelledby="pages-h">
         <div><h2 id="pages-h">Page text</h2><p>Written in Markdown, like articles. Changes go live as soon as you save.</p></div>
         <div class="row">
-          <div class="seg" role="group" aria-label="Page">${pages.map((p) => html`<button type="button" data-page="${p.key}" aria-pressed="${p.key === pageKey}">${p.label}</button>`)}</div>
+          <div class="seg" role="group" aria-label="Page">${pages.map((p) => html`<button type="button" data-page="${p.key}" aria-pressed="${p.key === pageKey ? "true" : "false"}">${p.label}</button>`)}</div>
           <span class="spacer"></span>
           <label class="toggle"><input type="checkbox" data-preview><span class="track"></span>Preview</label>
         </div>

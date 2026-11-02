@@ -123,10 +123,39 @@ export function safeFileName(name) {
   return ext ? `${stem}.${ext}` : stem;
 }
 
+/** True when Supabase Auth couldn't send an email (limit reached, sender not set up, delivery failed). */
+export function isEmailDeliveryError(err) {
+  if (!err) return false;
+  const code = err.code || "";
+  const msg = err.message || "";
+  return code === "over_email_send_rate_limit" || code === "email_address_not_authorized"
+    || /email rate limit|email address not authorized|error sending .*email/i.test(msg);
+}
+
 export function friendlyError(err) {
   if (!err) return "Something went wrong.";
   const code = err.code || "";
   const msg = err.message || err.error_description || String(err);
+  // Supabase Auth error codes: https://supabase.com/docs/guides/auth/debugging/error-codes
+  if (code === "over_email_send_rate_limit" || /email rate limit/i.test(msg)) {
+    return "The site couldn't send you an email just now because it reached its hourly email limit. This isn't something you did. Try again in an hour, or email the journal and we'll sort it out.";
+  }
+  if (code === "email_address_not_authorized" || /email address not authorized/i.test(msg)) {
+    return "The site can't send email to this address yet. This isn't something you did. Email the journal and we'll sort it out.";
+  }
+  if (/error sending .*email/i.test(msg)) {
+    return "The site couldn't send the email. This isn't something you did. Email the journal and we'll sort it out.";
+  }
+  if (code === "over_request_rate_limit") return "Too many attempts from this network. Wait a few minutes and try again.";
+  if (code === "user_already_exists" || code === "email_exists" || /user already registered/i.test(msg)) {
+    return "An account with this email already exists. Sign in instead, or use Forgot your password.";
+  }
+  if (code === "invalid_credentials") return "Email or password is incorrect.";
+  if (code === "email_not_confirmed" || /Email not confirmed/i.test(msg)) {
+    return "Confirm your email first with the link we sent you. If it never arrived, email the journal and we'll sort it out.";
+  }
+  if (code === "weak_password" || code === "same_password") return msg;
+  if (code === "signup_disabled") return "New sign-ups are turned off right now. Email the journal for access.";
   if (code === "23505" || /duplicate key/i.test(msg)) {
     if (/slug/i.test(msg)) return "That URL slug is already used. Change the slug and try again.";
     if (/email/i.test(msg)) return "That email is already on the list.";
@@ -135,8 +164,7 @@ export function friendlyError(err) {
   if (code === "42501" || /row-level security|permission denied/i.test(msg)) return "Your account doesn't have permission to do that.";
   if (code === "42P01" || /does not exist|Could not find the table|schema cache/i.test(msg)) return "The database isn't set up yet. Run supabase/schema.sql in the Supabase SQL editor.";
   if (/Invalid login credentials/i.test(msg)) return "Email or password is incorrect.";
-  if (/Email not confirmed/i.test(msg)) return "Confirm your email first — check your inbox for the link.";
-  if (/rate limit/i.test(msg)) return "Too many attempts. Wait a minute and try again.";
+  if (/rate limit/i.test(msg) || err.status === 429) return "Too many attempts. Wait a few minutes and try again.";
   if (/Password should be/i.test(msg)) return msg;
   if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) return "Can't reach the server. Check your connection and try again.";
   if (/exceeded the maximum allowed size|Payload too large|413/i.test(msg)) return "That file is too large for your storage plan.";
@@ -196,7 +224,7 @@ This policy explains what The Fershman Journal collects when you use fershman.co
 - **Newsletter sign-ups:** your email address and, if you give it, your name.
 - **Forms:** the details you enter when you submit an article, apply or contact us.
 - **Member accounts:** your name, email address and role, so we can give club members access to internal materials.
-- **Reading statistics:** an anonymous count of how many times each article is opened. We don't track individual readers.
+- **Reading statistics:** we count how many times each article is opened, and we use Google Analytics to see how the site is used: which pages people visit, how far they read, and which buttons and forms they use. Google Analytics sets cookies and records details such as your browser, device and approximate location. It doesn't tell us who you are, and we don't use it for advertising. If your browser sends a Global Privacy Control signal, we don't load it. You can also opt out with [Google's browser add-on](https://tools.google.com/dlpage/gaoptout).
 
 ## How we use it
 
@@ -204,7 +232,7 @@ We use this information only to run the journal: to send the newsletter, reply t
 
 ## Who processes it
 
-Our site is hosted on Netlify. Accounts, forms and files are stored with Supabase. The market data strip is provided by TradingView, which may set its own cookies.
+Our site is hosted on Netlify. Accounts, forms and files are stored with Supabase. Site statistics are processed by Google Analytics. The market data strip is provided by TradingView, which may set its own cookies.
 
 ## Your choices
 
@@ -223,6 +251,8 @@ export const STAGE_LABELS = { new: "New", reviewing: "Reviewing", interview: "In
 export const RECRUITING_DEFAULTS = {
   status: "rolling", // rolling | deadline | closed
   deadline: "",
+  popup: true, // during a recruiting period, a small card on every page links to /apply
+  popupText: "We're looking for writers, analysts and editors. No finance background needed.",
   timezone: "America/Chicago",
   headline: "Join The Fershman Journal",
   lede: "Research, write and publish analysis on markets, deals and policy, with editors who make your work sharper. Applications are reviewed on a rolling basis, so apply whenever you're ready.",

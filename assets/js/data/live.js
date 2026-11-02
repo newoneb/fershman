@@ -153,6 +153,11 @@ export async function createLiveAdapter(config) {
         email: String(email).trim(), password,
         options: { data: { full_name: fullName || "" }, emailRedirectTo: `${location.origin}/portal/` },
       }));
+      // With email confirmation on, Supabase answers a sign-up for an existing account with a
+      // placeholder user that has no identities (and sends nothing) instead of an error.
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        throw Object.assign(new Error("User already registered"), { code: "user_already_exists" });
+      }
       return { needsConfirmation: !data.session };
     },
     async signOut() { profileCache = null; await sb.auth.signOut(); },

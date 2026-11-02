@@ -2,7 +2,7 @@
 import { db, LIVE, config } from "../data/db.js";
 import { html, raw, mount, icon, slugify, safeUrl, coverArt, wordCount, readMinutes, toLocalInput, fromLocalInput, fmtDateTime, timeAgo, debounce, $, $$ } from "../lib/util.js";
 import { toast, confirmDialog, openPanel, promptDialog } from "../lib/ui.js";
-import { renderMarkdown, EMBED_HOSTS } from "../lib/md.js";
+import { renderMarkdown, enhance, EMBED_HOSTS } from "../lib/md.js";
 import { articleState, roleAtLeast, friendlyError } from "../data/shared.js";
 
 const STATE_LABEL = { published: "Published", scheduled: "Scheduled", review: "In review", draft: "Draft" };
@@ -51,13 +51,13 @@ export async function editor(ctx, id) {
           <div class="md-toolbar" role="toolbar" aria-label="Formatting">
             ${tb("heading", "Section heading", "h2")}${tb("bold", "Bold (Ctrl+B)", "bold")}${tb("italic", "Italic (Ctrl+I)", "italic")}${tb("link", "Link (Ctrl+K)", "link")}
             <span class="sep"></span>
-            ${tb("quote", "Pull quote", "quote")}${tb("listUl", "Bulleted list", "ul")}${tb("listOl", "Numbered list", "ol")}${tb("table", "Table", "table")}
+            ${tb("quote", "Pull quote", "quote")}${tb("listUl", "Bulleted list", "ul")}${tb("listOl", "Numbered list", "ol")}${tb("table", "Table", "table")}${tb("chart", "Interactive chart", "chart")}
             <span class="sep"></span>
             ${tb("image", "Insert image", "image")}${tb("footnote", "Footnote", "footnote")}${tb("hr", "Divider", "hr")}
             <div class="seg" role="group" aria-label="Editor view">
-              <button type="button" data-mode="write" aria-pressed="${mode === "write"}">Write</button>
-              <button type="button" data-mode="split" aria-pressed="${mode === "split"}">Split</button>
-              <button type="button" data-mode="preview" aria-pressed="${mode === "preview"}">Preview</button>
+              <button type="button" data-mode="write" aria-pressed="${mode === "write" ? "true" : "false"}">Write</button>
+              <button type="button" data-mode="split" aria-pressed="${mode === "split" ? "true" : "false"}">Split</button>
+              <button type="button" data-mode="preview" aria-pressed="${mode === "preview" ? "true" : "false"}">Preview</button>
             </div>
           </div>
           <div class="md-panes" id="ed-panes">
@@ -139,6 +139,33 @@ export async function editor(ctx, id) {
   function drawPreview() {
     if (mode === "write") return;
     preview.innerHTML = renderMarkdown(body.value || "*Nothing written yet.*");
+    enhance(preview).then(() => {
+      $$("figure.fj-chart", preview).forEach((f, i) => {
+        const row = document.createElement("div");
+        row.className = "cb-edit-row";
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn-sm";
+        b.dataset.chartEdit = String(i);
+        b.textContent = "Edit chart";
+        row.append(b);
+        f.before(row);
+      });
+    });
+  }
+  async function editChart(block) {
+    const { openChartBuilder } = await import("./chart-builder.js");
+    openChartBuilder({
+      source: block ? block.source : "",
+      onSave: (text) => {
+        if (block) {
+          body.setRangeText(text, block.start, block.end, "end");
+          body.focus();
+          body.dispatchEvent(new Event("input"));
+        } else insertBlock(text);
+        toast(block ? "Chart updated" : "Chart added");
+      },
+    });
   }
   function drawCounts() {
     const n = wordCount(body.value);
@@ -256,6 +283,10 @@ export async function editor(ctx, id) {
       case "ol": return prefixLines((i) => `${i + 1}. `);
       case "table": return insertBlock("| Company | Deal value | Multiple |\n|---|---|---|\n| Example Co. | $2.0bn | 12.5x |\n| Sample Corp. | $850m | 9.8x |");
       case "hr": return insertBlock("---");
+      case "chart": {
+        const { findChartBlock } = await import("./chart-builder.js");
+        return editChart(findChartBlock(body.value, body.selectionStart));
+      }
       case "footnote": {
         const n = (body.value.match(/\[\^(\d+)\]:/g) || []).length + 1;
         const { selectionEnd: e } = body;
@@ -337,6 +368,12 @@ export async function editor(ctx, id) {
   ctx.el.addEventListener("click", async (e) => {
     const m = e.target.closest("[data-md]");
     if (m) mdAction(m.dataset.md);
+    const ce = e.target.closest("[data-chart-edit]");
+    if (ce) {
+      const { nthChartBlock } = await import("./chart-builder.js");
+      editChart(nthChartBlock(body.value, Number(ce.dataset.chartEdit)));
+      return;
+    }
     const md = e.target.closest("[data-mode]");
     if (md) { mode = md.dataset.mode; drawMode(); }
     const act = e.target.closest("[data-act]");
@@ -400,8 +437,11 @@ export async function editor(ctx, id) {
         </tbody></table>
         <h3>Tables</h3>
         <p>Use the table button. Numbers in tables are right-aligned automatically.</p>
-        <h3>Charts and video</h3>
-        <p>Paste an embed code (an <code>&lt;iframe&gt;</code>) on its own line. Allowed sources: ${EMBED_HOSTS.join(", ")}.</p>
+        <h3>Interactive charts</h3>
+        <p>Press the chart button in the toolbar, pick a type, and paste your data from Google Sheets, Excel or a CSV. Readers can hover for values, switch series on and off, view the data as a table and download it. To change a chart later, put the cursor inside it and press the chart button again, or press <strong>Edit chart</strong> in the preview.</p>
+        <p>Charts are stored in the article as a <code>&#96;&#96;&#96;chart</code> block: settings such as <code>type: line</code>, <code>title:</code>, <code>source:</code>, then <code>---</code> and the data as CSV.</p>
+        <h3>Embeds and video</h3>
+        <p>Paste an embed code (an <code>&lt;iframe&gt;</code>) on its own line, for maps and other visuals. Allowed sources: ${EMBED_HOSTS.join(", ")}.</p>
         <h3>Key figures</h3>
         <p>In the sidebar, one per line: <code>$1.5T | Record margin debt</code>.</p>
         <h3>Shortcuts</h3>

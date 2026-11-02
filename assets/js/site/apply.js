@@ -4,6 +4,7 @@ import { html, raw, mount, icon, isEmail, safeUrl, $, $$ } from "../lib/util.js"
 import { openPanel, toast, downloadFile } from "../lib/ui.js";
 import { mergeRecruiting, applicationStatus, friendlyError, isMarketing } from "../data/shared.js";
 import { initChrome, setMeta } from "./chrome.js";
+import { track } from "./analytics.js";
 import { avatar, errorState } from "./cards.js";
 
 initChrome({ active: null });
@@ -95,7 +96,7 @@ function hostCards(hosts, authors) {
     const booking = safeUrl(h.booking_url);
     const action = booking
       ? html`<button class="btn btn-accent btn-sm" type="button" data-book="${i}">Book a time</button>`
-      : h.email ? html`<a class="btn btn-sm" href="mailto:${h.email}?subject=${encodeURIComponent("Coffee chat about joining Fershman")}">Email to schedule</a>` : "";
+      : h.email ? html`<a class="btn btn-sm" href="mailto:${h.email}?subject=${encodeURIComponent("Coffee chat about joining Fershman")}" data-track="coffee_chat_click" data-track-host-name="${person.name}" data-track-method="email">Email to schedule</a>` : "";
     return html`<article class="host">
       ${avatar(person, "avatar-md")}
       <div>
@@ -281,6 +282,7 @@ function wire(rc, sessions) {
     if (!b) return;
     const h = HOSTS[Number(b.dataset.book)];
     const url = safeUrl(h.booking_url);
+    track("coffee_chat_click", { host_name: h.name, method: "booking" });
     const embed = embedBooking(url);
     if (!embed || matchMedia("(max-width: 640px)").matches) { window.open(url, "_blank", "noopener"); return; }
     openPanel({
@@ -342,6 +344,7 @@ function wire(rc, sessions) {
         try { localStorage.setItem(`fj-session-${res.id}`, JSON.stringify(res)); } catch (_) { /* private mode */ }
         mount($(".session-slot", row), confirmationBox(res, rc, res.status === "already"));
         mount($(".session-cta", row), html`<span class="pill-ok">${icon("check")} Registered</span>`);
+        if (res.status === "registered") track("info_session_register", { session_title: res.title });
         toast(res.status === "already" ? "You're already registered" : "You're registered");
       } else if (res.status === "full") {
         err.textContent = "This session just filled up. Try another one.";
@@ -365,6 +368,7 @@ function wire(rc, sessions) {
     if (!isEmail(email)) { if (err) err.textContent = "Enter a valid email address."; return; }
     try {
       await db.subscribe({ email, source: form.dataset.notify });
+      track("recruiting_notify", { source: form.dataset.notify });
       form.outerHTML = html`<div class="form-success" role="status"><strong>You're on the list</strong>We'll email you.</div>`.value;
     } catch (ex) { if (err) err.textContent = friendlyError(ex); }
   });
@@ -411,6 +415,7 @@ function wire(rc, sessions) {
         data: { year: v.year, major: v.major, roles: v.roles.join(", "), pitch: v.pitch, sample: v.sample, resume: v.resume, heard: v.heard, met: v.met },
       });
       localStorage.removeItem(DRAFT_KEY);
+      track("application_submit", { roles: v.roles.join(", "), year: v.year, heard: v.heard });
       form.closest(".form-card").outerHTML = html`<div class="form-success apply-done" role="status">
         <strong>Application received</strong>
         <p>Thanks, ${v.name.split(" ")[0]}. ${rc.confirmation}</p>

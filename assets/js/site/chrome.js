@@ -2,6 +2,8 @@
 import { db, config, LIVE } from "../data/db.js";
 import { html, mount, icon, fmtLongDate, hash, coverArt, safeUrl, $, $$ } from "../lib/util.js";
 import { setTheme, getTheme, installImageFallbacks, copyText, toast } from "../lib/ui.js";
+import { pageView } from "./analytics.js";
+import { recruitingPopup } from "./recruit-popup.js";
 
 const S = config.site;
 
@@ -178,9 +180,9 @@ function setupTicker() {
   host.append(s);
 }
 
-async function setupAnnouncement() {
+async function setupAnnouncement(settingsPromise) {
   try {
-    const settings = await db.getSettings();
+    const settings = await settingsPromise;
     const a = settings.announcement || {};
     if (!a.enabled || !a.text) return;
     const key = "fj-announce-" + hash(a.text + (a.link || ""));
@@ -217,13 +219,17 @@ function fallbackFor(img) {
 
 /** Call once per page. `active` = nav key to highlight. */
 export function initChrome({ active } = {}) {
+  document.body.classList.add("site");
   document.body.insertAdjacentHTML("afterbegin", header(active).value);
   document.body.insertAdjacentHTML("beforeend", footer().value);
   setupDrawer();
   setupCompactBar();
   setupTheme();
   setupTicker();
-  setupAnnouncement();
+  const settings = db.getSettings();
+  settings.catch(() => {});
+  setupAnnouncement(settings);
+  recruitingPopup(settings);
   installImageFallbacks(fallbackFor);
   document.addEventListener("click", async (e) => {
     const copy = e.target.closest("[data-share-copy]");
@@ -238,8 +244,9 @@ export function initChrome({ active } = {}) {
   });
 }
 
-export function setMeta({ title, description, image, url } = {}) {
+export function setMeta({ title, description, image, url, analytics } = {}) {
   if (title) document.title = title === S.name ? title : `${title} — ${S.name}`;
+  pageView(analytics);
   const setTag = (selector, attr, value) => {
     if (!value) return;
     let el = document.head.querySelector(selector);

@@ -20,7 +20,7 @@ export async function recruiting(ctx) {
   mount(ctx.el, html`<div class="view">
     <div class="view-head"><div><h1>Recruiting</h1><p>Applications, info sessions and coffee chats for the <a href="/apply" target="_blank" rel="noopener">Apply page</a>.</p></div>
       <div class="view-actions"><a class="btn" href="/apply" target="_blank" rel="noopener">${icon("external")} View Apply page</a></div></div>
-    <div class="toolbar"><div class="seg" role="tablist" aria-label="Recruiting">${tabs.map((t) => html`<button type="button" role="tab" data-tab="${t.key}" aria-pressed="${t.key === tab}">${t.label}</button>`)}</div></div>
+    <div class="toolbar"><div class="seg" role="tablist" aria-label="Recruiting">${tabs.map((t) => html`<button type="button" role="tab" data-tab="${t.key}" aria-pressed="${t.key === tab ? "true" : "false"}">${t.label}</button>`)}</div></div>
     <div id="rc-body"></div>
   </div>`);
   let body = $("#rc-body", ctx.el);
@@ -58,7 +58,7 @@ async function applications(el, ctx) {
   mount(el, html`
     <div class="toolbar">
       <div class="seg" role="group" aria-label="Filter by stage">
-        ${["all", ...STAGES].map((s) => html`<button type="button" data-stage-filter="${s}" aria-pressed="${s === stage}">${s === "all" ? "All" : STAGE_LABELS[s]} <span class="n">${count(s)}</span></button>`)}
+        ${["all", ...STAGES].map((s) => html`<button type="button" data-stage-filter="${s}" aria-pressed="${s === stage ? "true" : "false"}">${s === "all" ? "All" : STAGE_LABELS[s]} <span class="n">${count(s)}</span></button>`)}
       </div>
       <input class="input search" type="search" placeholder="Search applicants" aria-label="Search applicants" data-q>
       <span class="spacer"></span>
@@ -337,6 +337,8 @@ async function pageSettings(el, ctx, isAdmin) {
           </select></label>
         <label class="field" id="p-deadline-wrap" ${rc.status === "deadline" ? "" : raw("hidden")}><span class="label">Deadline</span><input class="input" id="p-deadline" type="date" value="${rc.deadline || ""}"></label>
       </div>
+      <label class="toggle"><input type="checkbox" id="p-popup" ${rc.popup !== false ? raw("checked") : ""}><span class="track"></span>During a recruiting period, show a pop-up on every page that links to Apply</label>
+      <label class="field"><span class="label">Pop-up message</span><input class="input" id="p-popup-text" value="${rc.popupText || ""}" maxlength="180"><span class="hint">Shown with the period's name and end date, e.g. “Fall recruitment is on … Apply by October 16.” Visitors who close it don't see it again that period.</span></label>
     </section>
     <section class="card card-pad stack">
       <h2>Top of the page</h2>
@@ -366,6 +368,7 @@ async function pageSettings(el, ctx, isAdmin) {
       const fresh = mergeRecruiting((await db.getSettings()).recruiting);
       const next = {
         ...fresh, status, deadline: status === "deadline" ? deadline : "",
+        popup: $("#p-popup", el).checked, popupText: $("#p-popup-text", el).value.trim(),
         headline: $("#p-headline", el).value.trim() || fresh.headline,
         lede: $("#p-lede", el).value.trim(),
         highlights: readRepeater(el, "highlights"), steps: readRepeater(el, "steps"),
@@ -385,7 +388,7 @@ async function periods(el, ctx) {
   const today = new Date().toISOString().slice(0, 10);
   const draw = () => mount(el, html`
     <div class="card card-pad stack" style="margin-bottom:16px">
-      <div><h2>Active recruiting periods</h2><p>Mark the weeks you're actively recruiting — posters up, info sessions running. During a period the Apply page leads with it (for example “Fall recruitment is on. Apply by October 16”). Applications stay open on a rolling basis outside these dates.</p></div>
+      <div><h2>Active recruiting periods</h2><p>Mark the weeks you're actively recruiting — posters up, info sessions running. During a period the Apply page leads with it (for example “Fall recruitment is on. Apply by October 16”), and every page of the site shows a small pop-up pointing to Apply. Applications stay open on a rolling basis outside these dates.</p></div>
       <div class="field-row">
         <label class="field"><span class="label">Name</span><input class="input" id="pr-title" placeholder="Fall recruitment"></label>
         <label class="field"><span class="label">Note <span class="hint">(optional, internal)</span></span><input class="input" id="pr-note" placeholder="Posters up week 2"></label>

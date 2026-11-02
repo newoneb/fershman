@@ -43,7 +43,7 @@ async function library(session) {
         <div class="toolbar" style="margin:0">
           <input class="input search" type="search" placeholder="Search the library" aria-label="Search the library" data-q>
           <select class="select" data-col aria-label="Collection"><option value="">All collections</option></select>
-          <div class="seg" role="group" aria-label="File type">${Object.entries(TYPE_GROUPS).map(([k, g]) => html`<button type="button" data-type="${k}" aria-pressed="${k === type}">${g.label}</button>`)}</div>
+          <div class="seg" role="group" aria-label="File type">${Object.entries(TYPE_GROUPS).map(([k, g]) => html`<button type="button" data-type="${k}" aria-pressed="${k === type ? "true" : "false"}">${g.label}</button>`)}</div>
           ${canEdit ? html`<span class="spacer"></span><button class="btn btn-accent" type="button" data-add>${icon("upload")} Add files</button>` : ""}
         </div>
       </div>

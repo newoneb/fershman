@@ -71,6 +71,16 @@ Netlify can rename the address under **Site configuration → Change site name**
    **Request access**, and sign up. Confirm the email Supabase sends you, then sign in.
    **The first account ever created becomes the admin** — do this right after step 2.
 8. Open `/admin/`. You're in.
+9. **Let members sign up.** Supabase's built-in email only reaches people on your Supabase
+   project team (that's why step 7 worked for you), and only 2 emails an hour. Anyone else who
+   requests access while **Confirm email** is on gets an error. Pick one:
+   - **Quick:** in Supabase open **Authentication → Sign In / Providers**, turn off
+     **Confirm email** and save. People can request access without an email, and an admin still
+     approves every new member, so only approve people you recognize.
+   - **Proper:** connect your own email sender ([Emails from the site](#emails-from-the-site)).
+     You need this anyway for **Forgot your password** to reach members.
+
+   Accounts from the old fershman.com didn't carry over. Everyone requests access once.
 
 ## 3. Bring your articles over from Framer
 
@@ -121,6 +131,17 @@ launch note and two Learn Economics lessons as drafts.
 | Editor | + edit, schedule and publish; manage authors, portal files and the inbox |
 | Admin | + approve members, see subscribers, change site settings |
 
+### Teams and the Marketing team
+
+Teams are the groups on the public Authors page (Leadership, Editors, Marketing, Analysts,
+Staff Writers). One person can hold several positions: in **Admin → Authors**, tick every team
+they're on, for example *Editors* and *Marketing*. They appear under each team.
+
+Anyone whose byline is on **Marketing** (and whose account is linked to that byline in
+Members) can run recruiting even as a writer: schedule info sessions, set active recruiting
+periods and review applications. Everyone on Marketing is listed on the Apply page for coffee
+chats automatically. Each person adds their own booking link under **Admin → My byline**.
+
 New people sign up at `/portal/` and appear in **Admin → Members** as *Pending approval*.
 Choose a role to let them in. Link a writer's account to their author byline in the same
 table so new articles are attributed to them automatically.
@@ -134,7 +155,9 @@ typography.
 - Format with the toolbar or Markdown: `## Heading`, `**bold**`, `> pull quote`,
   `![alt text](image-url "Caption. Source: X")`, tables, and footnotes (`claim[^1]` then
   `[^1]: Source`). Paste or drop an image straight into the text to upload it.
-- Charts and video: paste an embed code from Datawrapper, Flourish, YouTube, Vimeo, Google
+- **Interactive charts:** press the chart button in the toolbar (see
+  [Interactive charts](#interactive-charts)).
+- Maps and video: paste an embed code from Datawrapper, Flourish, YouTube, Vimeo, Google
   Slides, FRED or Our World in Data on its own line.
 - **Key figures** (sidebar): one per line, `$1.5T | Record margin debt`. They appear beside
   the article.
@@ -144,6 +167,54 @@ typography.
   down without deleting it.
 - Writers press **Submit for review**; editors see the count on the Articles menu.
 - Unsaved changes are backed up in your browser, and `Ctrl/⌘ + S` saves.
+
+### Interactive charts
+
+Charts are drawn by the site itself, in the journal's style, so they load fast, work in dark
+mode and on phones, and readers can explore them:
+
+- hover, tap or use the arrow keys to read exact values (a crosshair on line charts)
+- click a legend entry to hide or show a series
+- switch time spans with range buttons such as 1Y, 5Y, All
+- **View data** shows the numbers as a table; **Download data** saves a CSV
+
+To add one, press the chart button in the editor toolbar, pick a type (line, area, columns,
+stacked columns, bars or scatter), and paste your data from Google Sheets or Excel (or upload
+a CSV). The first row holds column names. For line and area charts the first column holds
+dates: `2024-03-31`, `2024-03`, `Mar 2024`, `2024` and `Q1 2024` all work. Then add a title,
+a subtitle with the unit, the source, and optionally:
+
+- **Before/After:** `$`, `%`, `x`, `bn` around every number. Keep the data itself plain
+  (`1.5`, not `$1.5T`).
+- **Emphasize:** name one or two series and the rest turn gray, so the story stands out.
+- **Event markers:** `2020-03 | Pandemic cuts` draws a labeled vertical line.
+- **Reference lines:** `2 | Fed target` draws a dashed line at that value.
+
+The preview updates as you type, and errors say which row to fix. To change a chart later,
+press **Edit chart** above it in the preview, or put the cursor inside it and press the chart
+button. Up to six series per chart (twelve when you emphasize some), three groups in a scatter.
+The colors are tested for color-blind readers in both light and dark mode.
+
+Charts live in the article text as a block like this, which you can also type by hand:
+
+````
+```chart
+type: line
+title: The Fed's policy rate since 2015
+subtitle: Upper bound of the target range, percent
+source: Federal Reserve
+suffix: %
+ranges: 1Y, 5Y, All
+mark: 2020-03 | Pandemic cuts
+---
+Month,Upper bound
+2015-01,0.25
+2015-02,0.25
+```
+````
+
+The Learn Economics lesson "What a bond yield is really telling you" in the demo shows three
+examples. For maps or anything more unusual, Datawrapper and Flourish embeds still work.
 
 ### Members portal
 
@@ -166,22 +237,121 @@ Google Slides or Drive link instead.
 
 ### Recruiting and the Apply page
 
-**Admin → Recruiting** runs everything on `/apply`:
+**Admin → Recruiting** runs everything on `/apply`. Editors, admins and the Marketing team
+can use it:
 
 - **Applications:** every application with its answers, story pitch and links. Move people
   through stages (New → Reviewing → Interview → Accepted / Declined) and export a CSV.
 - **Info sessions:** add a date, place, optional capacity and an optional meeting link. People
   register on the Apply page, get Google Calendar and .ics buttons, and see the meeting link
   only after registering. Open a session to see who's coming, copy their emails or export them.
-- **Coffee chats:** list the members who host chats and paste each one's booking page
+- **Recruiting periods:** mark the weeks you're actively recruiting (posters up, sessions
+  running). During a period the Apply page leads with it, e.g. "Fall recruitment is on.
+  Apply by October 16". Outside periods, applications stay open on a rolling basis.
+- **Coffee chats:** the Marketing team is listed automatically. You can also add extra hosts
+  and paste each one's booking page
   (Calendly, Cal.com or a Google Calendar appointment schedule — all have free plans).
   Those tools send confirmations and reminders and handle rescheduling. Hosts without a link
   get an "Email to schedule" button.
 - **Apply page:** open with rolling review, open until a deadline, or closed (visitors can ask
   to be notified). Edit the headline, highlights, steps, roles, what you look for and the FAQ.
+- **Recruiting pop-up:** while a recruiting period is on, a small card slides in at the
+  bottom corner of every page (a few seconds after it loads, or once the reader scrolls):
+  "Fall recruitment is on", your pop-up message, the deadline and the next info session, with
+  buttons to the Apply page. It never covers the page, shows once per visit, and stays away for
+  the rest of the period once someone closes it. It doesn't appear on the Apply page itself.
+  Change the message or turn it off under **Apply page → Application status**. The period's
+  own note stays internal.
 
-If you set the site up before November 2026, re-run `supabase/schema.sql` once in the
-Supabase SQL editor to add the recruiting tables. It keeps all existing data.
+If you set the site up before these features existed, re-run `supabase/schema.sql` once in
+the Supabase SQL editor. It adds the new tables and columns and keeps all existing data.
+
+### Emails from the site
+
+Supabase sends two kinds of email for the site: the confirmation link when someone requests
+access (only while **Confirm email** is on) and **Forgot your password** links.
+
+Its built-in sender is meant for testing. It only delivers to people on your Supabase project
+team, at most 2 emails an hour. Everyone else sees "The site can't send email to this address
+yet" or "…reached its hourly email limit", with your contact email to write to instead.
+
+To email everyone, connect your own sender. Resend's free plan (3,000 emails a month, 100 a day)
+is plenty for a club:
+
+1. Sign up at <https://resend.com>, open **Domains → Add domain** and enter `fershman.com`.
+2. Resend lists a few DNS records. Add each one in GoDaddy (**My Products → fershman.com → DNS →
+   Add new record**) exactly as shown, then press **Verify** in Resend. They live on their own
+   subdomains, so your website and any email you already receive aren't affected.
+3. In Resend open **API Keys → Create API key** (sending access) and copy the key.
+4. In Supabase open **Authentication → Email** (under Notifications) **→ SMTP Settings**, turn on
+   **Enable custom SMTP** and fill in:
+   - Sender email: `no-reply@fershman.com`, sender name: `The Fershman Journal`
+   - Host `smtp.resend.com`, port `465`, username `resend`, password: the API key
+5. Save. Custom senders start at 30 emails an hour; change that under
+   **Authentication → Rate Limits**.
+6. If you turned off **Confirm email**, you can turn it back on now.
+
+Sign-ups and sign-ins are also limited to 30 every 5 minutes per network. If a room full of
+people requests access at once on campus Wi-Fi (at an info session, say), raise
+**Sign-ups and sign-ins** under **Authentication → Rate Limits** beforehand.
+
+### Helping someone who can't get in
+
+- **"Email or password is incorrect"** and they had an account on the old site: old accounts
+  didn't carry over. They choose **Request access** and sign up again with the same email.
+- **An email error while requesting access:** see above. Meanwhile, check
+  **Authentication → Users** in Supabase. If they're listed as waiting for verification,
+  delete them there and ask them to request access again once **Confirm email** is off or your
+  own sender is connected.
+- **They signed up but see "Thanks — you're on the list":** they're waiting for you. Choose
+  their role in **Admin → Members** (and link their byline if they write).
+
+### Google Analytics
+
+The public pages report to Google Analytics 4 (`G-WQ8MGKY96G`, set as `analytics.ga4` in
+`config.js`; an empty value turns it off). Because pages are built in the browser, the site
+sends each page view itself once the real headline is in place, grouped by section
+("Content group" in GA). On top of that it records:
+
+| Event | When | Details |
+|---|---|---|
+| `article_progress` | a reader gets 25%, 50%, 75% and 100% of the way through a story | `percent_read`, `engaged_seconds`, `article_section`, `article_author` |
+| `article_complete` | they reach the end | `engaged_seconds`, `read_minutes` (estimated length) |
+| `article_read` | they leave a story | deepest `percent_read`, total `engaged_seconds` |
+| `share` | copy link, LinkedIn, X, email or print | `method` |
+| `newsletter_signup` | someone subscribes | |
+| `application_submit` | someone applies | `roles`, `year`, `heard` |
+| `info_session_register` | someone registers for an info session | `session_title` |
+| `coffee_chat_click` | someone opens a host's booking page or email | `host_name`, `method` |
+| `recruiting_notify`, `story_pitch`, `contact_message` | the other forms | |
+| `search` | a search returns results | `search_term`, `results` |
+| `chart_interact`, `chart_data` | a reader explores a chart, or views or downloads its data | `chart_title`, `method` |
+| `recruiting_popup` | the pop-up is shown, clicked or closed | `popup_action`, `period_title` |
+
+"Engaged" time only counts while the tab is visible and the reader has scrolled, moved or
+typed in the last 30 seconds.
+
+Set up GA once (Admin, the gear icon, in analytics.google.com):
+
+1. **Data display → Events:** once the events have come in (give it a day), click the star
+   next to `newsletter_signup`, `application_submit` and `info_session_register` to make them
+   key events.
+2. **Data display → Custom definitions → Create custom dimension** (scope: Event) for
+   `article_section`, `article_author`, `percent_read`, `chart_title`, `popup_action` and
+   `host_name`, and a **custom metric** for `engaged_seconds` (unit: seconds). Without this
+   step the details are collected but don't show in reports.
+3. Check it works under **Reports → Realtime** while you browse the site.
+
+Then **Explore → Free form** with *Page title* and `percent_read` as dimensions and *Event
+count* as the value shows how far people read each story.
+
+Not tracked: the admin panel and members portal, draft previews, browsers that send a
+Global Privacy Control signal, and any browser where someone has signed in to the admin (so
+the team's own visits don't count). Open `fershman.com/?analytics=off` or `?analytics=on` to
+switch a browser out or back in.
+
+The default Privacy page explains this. If you edited the Privacy page under **Settings**,
+add a paragraph about Google Analytics there too.
 
 ## Customizing
 
@@ -189,8 +359,12 @@ Everything most people want to change is in `config.js`: the journal's name and 
 the sections (order, names, descriptions), contact emails, social links, Learn Economics
 topics, author teams, and the market strip (symbols, or `enabled: false` to hide it).
 
-Colors and fonts are tokens at the top of `assets/css/tokens.css`. The fonts (Newsreader
-and Schibsted Grotesk, both open source) are bundled, so nothing loads from Google.
+Colors and fonts are tokens at the top of `assets/css/tokens.css`. The nameplate and drop
+caps use Cinzel, the open-source cousin of Trajan Pro; headlines use Hedvig Letters Serif,
+article text Newsreader and the interface Schibsted Grotesk. All four are open source and
+bundled, so nothing loads from Google. Trajan Pro itself is licensed through Adobe: to use it,
+add your Adobe Fonts web project to the page shells and put `"trajan-pro-3"` first in
+`--display`.
 
 ## Good to know
 
@@ -198,11 +372,9 @@ and Schibsted Grotesk, both open source) are bundled, so nothing loads from Goog
   5 GB of downloads a month, 50,000 monthly active users. Free projects are paused after a
   week of inactivity; if the site ever says it can't reach the database, open the project in
   Supabase and restore it. Automatic backups need a paid plan.
-- **Login emails:** Supabase's built-in email sender is rate-limited to a few messages an
-  hour, which is fine for a club. To send more, add your own SMTP server under
-  **Authentication → Emails**. If you'd rather skip email confirmation entirely, turn off
-  **Confirm email** under **Authentication → Sign In / Providers** — admins still approve
-  every new member.
+- **Login emails:** Supabase's built-in sender only emails your Supabase team, 2 an hour.
+  Connect your own sender before members sign up; see
+  [Emails from the site](#emails-from-the-site).
 - **Security:** the publishable key in `config.js` is designed to be public. What protects
   your data is the row-level security in `supabase/schema.sql`. Never paste the secret key
   into any file in this folder.
@@ -221,8 +393,9 @@ index.html, *.html        page shells; content is rendered by assets/js/site/*
 admin/, portal/           the admin panel and members portal
 assets/css/               tokens.css (colors, fonts), site.css, app.css
 assets/js/data/           live.js (Supabase), demo.js (browser-only), shared.js
-assets/js/site/           public pages
-assets/js/admin/          admin views, editor, importer
+assets/js/site/           public pages, analytics.js (Google Analytics), recruit-popup.js
+assets/js/lib/charts.js   interactive charts (```chart blocks)
+assets/js/admin/          admin views, editor, chart builder, importer
 assets/js/portal/         members portal
 assets/vendor/            bundled libraries (Supabase client, marked, DOMPurify, Turndown, Papa Parse)
 content/seed.json         demo content: your authors and recent headlines, sample portal items

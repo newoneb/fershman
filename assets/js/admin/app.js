@@ -179,6 +179,8 @@ async function boot() {
     if (back) back.addEventListener("click", async () => { await db.setDemoRole("admin"); location.reload(); });
     return;
   }
+  // Staff browsers don't count in the site's Google Analytics (see assets/js/site/analytics.js)
+  try { localStorage.setItem("fj-no-analytics", "1"); } catch (_) { /* private mode */ }
   shell();
   if (!location.hash) history.replaceState(null, "", "#/dashboard");
   lastHash = location.hash;

@@ -1,7 +1,7 @@
 // Sign in / request access / reset password screens for the admin panel and member portal.
 import { db, LIVE, config } from "../data/db.js";
 import { html, mount, coverArt, isEmail, $ } from "../lib/util.js";
-import { friendlyError } from "../data/shared.js";
+import { friendlyError, isEmailDeliveryError } from "../data/shared.js";
 
 const COPY = {
   admin: { kicker: "Admin", quote: "The newsroom: write, edit and publish the journal.", sub: "For writers and editors of The Fershman Journal." },
@@ -23,8 +23,8 @@ export function renderAuth(root, { context = "portal", mode = "signin", onDone }
   function view() {
     const tabs = allowSignup && (state === "signin" || state === "signup") ? html`
       <div class="seg" role="tablist" aria-label="Account">
-        <button type="button" data-mode="signin" aria-pressed="${state === "signin"}">Sign in</button>
-        <button type="button" data-mode="signup" aria-pressed="${state === "signup"}">Request access</button>
+        <button type="button" data-mode="signin" aria-pressed="${state === "signin" ? "true" : "false"}">Sign in</button>
+        <button type="button" data-mode="signup" aria-pressed="${state === "signup" ? "true" : "false"}">Request access</button>
       </div>` : "";
     let box;
     if (state === "signin") {
@@ -39,7 +39,8 @@ export function renderAuth(root, { context = "portal", mode = "signin", onDone }
           <button class="btn btn-accent" type="submit">Sign in</button>
         </form>
         <div class="auth-links"><button type="button" data-mode="forgot">Forgot your password?</button>
-          ${context === "admin" ? html`<a href="/portal/">Members portal</a>` : html`<a href="/">Back to the journal</a>`}</div>`;
+          ${context === "admin" ? html`<a href="/portal/">Members portal</a>` : html`<a href="/">Back to the journal</a>`}</div>
+        ${allowSignup ? html`<p class="form-note" style="margin-top:22px">Had an account on the old fershman.com? Old accounts didn't move to the new site. Choose <button type="button" class="link-inline" data-mode="signup">Request access</button> to create one with the same email.</p>` : ""}`;
     } else if (state === "signup") {
       box = html`
         <h1>Request access</h1>
@@ -126,7 +127,7 @@ export function renderAuth(root, { context = "portal", mode = "signin", onDone }
         const r = await db.signUp(v.email, v.password, v.name.trim());
         if (r.needsConfirmation) {
           state = "check-email";
-          flash = `We sent a confirmation link to ${v.email}. Open it, then come back and sign in. An admin will approve your access.`;
+          flash = `We sent a confirmation link to ${v.email}. Open it, then come back and sign in. An admin will approve your access. If nothing arrives in a few minutes, check your spam folder or email ${config.site.contactEmail || "the journal"}.`;
           draw();
         } else {
           onDone && onDone(await db.getSession());
@@ -148,7 +149,36 @@ export function renderAuth(root, { context = "portal", mode = "signin", onDone }
         onDone && onDone(await db.getSession());
       }
     } catch (ex) {
-      err.textContent = friendlyError(ex);
+      const message = friendlyError(ex);
+      if (kind === "signup" && /already exists/.test(message)) {
+        state = "signin";
+        flash = "You already have an account with this email. Sign in below, or use Forgot your password.";
+        draw();
+        const email = root.querySelector("#au-email");
+        if (email) email.value = v.email;
+        const pass = root.querySelector("#au-pass");
+        if (pass) pass.focus();
+        return;
+      }
+      err.textContent = message;
+      const contact = config.site.contactEmail;
+      const ask = message.match(/^([\s\S]*?\bemail )the journal([\s\S]*)$/i);
+      if (contact && ask) {
+        // "…email the journal and we'll sort it out" -> "…email <contact> and we'll sort it out"
+        const a = document.createElement("a");
+        a.href = `mailto:${contact}?subject=${encodeURIComponent("Fershman portal access")}`;
+        a.textContent = contact;
+        err.textContent = "";
+        err.append(ask[1], a, ask[2]);
+      } else if (contact && isEmailDeliveryError(ex)) {
+        const a = document.createElement("a");
+        a.href = `mailto:${contact}`;
+        a.textContent = contact;
+        err.append(" Contact ", a, ".");
+      } else if (kind === "signin" && !allowSignup && /incorrect/.test(message)) {
+        // The portal already says this under its form; the admin sign-in has no Request access tab.
+        err.append(" Accounts from the old fershman.com didn't carry over. Request access in the members portal first.");
+      }
       btn.disabled = false;
       btn.textContent = label;
     }

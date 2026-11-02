@@ -2,6 +2,7 @@
 import { db, config } from "../data/db.js";
 import { html, raw, mount, routeParam, params, debounce, esc, $ } from "../lib/util.js";
 import { initChrome, setMeta } from "./chrome.js";
+import { track } from "./analytics.js";
 import { story, articleUrl, sectionUrl, avatar, authorUrl, skeletonCards, emptyState, errorState } from "./cards.js";
 import { teamList, authorTeams } from "../data/shared.js";
 
@@ -161,6 +162,18 @@ async function learnPage() {
   </div>`);
 }
 
+let searchTimer = 0;
+let lastSearch = "";
+/** Count a search once the reader stops typing. */
+function trackSearch(term, results) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    if (term.toLowerCase() === lastSearch) return;
+    lastSearch = term.toLowerCase();
+    track("search", { search_term: term, results });
+  }, 1500);
+}
+
 async function searchPage() {
   initChrome({ active: null });
   setMeta({ title: "Search" });
@@ -194,6 +207,7 @@ async function searchPage() {
     try {
       const rows = await db.searchArticles(q, 30);
       if (id !== seq) return;
+      trackSearch(q.trim(), rows.length);
       const terms = q.trim().split(/\s+/);
       mount("#status", rows.length ? `${rows.length} result${rows.length === 1 ? "" : "s"} for “${q.trim()}”` : `No results for “${q.trim()}”. Try a company, a person or a broader term.`);
       mount("#results", rows.map((a) => {

@@ -3,6 +3,7 @@ import { db, config } from "../data/db.js";
 import { html, raw, mount, icon, isEmail, $ } from "../lib/util.js";
 import { renderMarkdown } from "../lib/md.js";
 import { initChrome, setMeta } from "./chrome.js";
+import { track } from "./analytics.js";
 import { avatar, authorUrl, sectionName, errorState } from "./cards.js";
 
 const page = document.body.dataset.page;
@@ -13,7 +14,7 @@ initChrome({ active: null });
 const honeypot = raw(`<div class="hp" aria-hidden="true"><label>Leave this empty <input name="company_website" tabindex="-1" autocomplete="off"></label></div>`);
 
 /** Wire a form: validate, send, swap in a success message. */
-function wireForm(form, { send, success }) {
+function wireForm(form, { send, success, event }) {
   const err = form.querySelector(".form-error");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -34,7 +35,9 @@ function wireForm(form, { send, success }) {
     btn.disabled = true;
     btn.textContent = "Sending…";
     try {
-      const result = await send(Object.fromEntries(fd.entries()));
+      const values = Object.fromEntries(fd.entries());
+      const result = await send(values);
+      if (event) track(event.name, typeof event.params === "function" ? event.params(values, result) : event.params || {});
       form.replaceWith(successBox(typeof success === "function" ? success(result) : success));
     } catch (ex) {
       err.textContent = ex.message || "That didn't go through. Try again in a moment.";
@@ -122,6 +125,7 @@ async function submit() {
   wireForm($("form"), {
     send: (v) => db.sendMessage({ kind: "submission", name: v.name, email: v.email, subject: v.subject, body: v.body, data: { type: v.type, section: v.section, section_name: sectionName(v.section), link: v.link } }),
     success: { title: "Submission received", text: "Thanks for writing to us. An editor will reply by email." },
+    event: { name: "story_pitch", params: (v) => ({ pitch_type: v.type, article_section: sectionName(v.section) }) },
   });
 }
 
@@ -159,6 +163,7 @@ async function subscribe() {
     success: (r) => (r && r.already
       ? { title: "You're already subscribed", text: "That address is already on the list. Nothing else to do." }
       : { title: "You're subscribed", text: "Welcome aboard. The next story will land in your inbox." }),
+    event: { name: "newsletter_signup", params: (v, r) => ({ source: "subscribe_page", already: r && r.already ? "yes" : "no" }) },
   });
 }
 
@@ -196,6 +201,7 @@ async function contact() {
   wireForm($("form"), {
     send: (v) => db.sendMessage({ kind: "contact", name: v.name, email: v.email, subject: v.subject, body: v.body }),
     success: { title: "Message sent", text: "Thanks for getting in touch. We'll reply by email." },
+    event: { name: "contact_message", params: (v) => ({ topic: v.subject }) },
   });
 }
 

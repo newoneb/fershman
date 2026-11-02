@@ -1,8 +1,9 @@
 import { db, config } from "../data/db.js";
-import { html, raw, mount, fmtDate, fmtDateTime, readMinutes, routeParam, params, safeUrl, coverArt, truncate, $ } from "../lib/util.js";
-import { renderMarkdown } from "../lib/md.js";
+import { html, raw, mount, fmtDate, fmtDateTime, readMinutes, routeParam, params, safeUrl, coverArt, truncate, plainText, $ } from "../lib/util.js";
+import { renderMarkdown, enhance } from "../lib/md.js";
 import { isPublic, articleState, parseFigures } from "../data/shared.js";
 import { initChrome, setMeta } from "./chrome.js";
+import { trackReading } from "./analytics.js";
 import { story, kicker, avatar, authorUrl, articleUrl, sectionUrl, sectionName, shareButtons, emptyState, errorState } from "./cards.js";
 
 const slug = routeParam("/articles");
@@ -39,7 +40,14 @@ function renderArticle(a) {
   const figures = parseFigures(a.figures);
   const cover = safeUrl(a.cover_url);
   const state = articleState(a);
-  setMeta({ title: a.title, description: a.dek || truncate(a.body, 180), image: cover || undefined, url: location.origin + articleUrl(a) });
+  const tracked = {
+    article_section: a.section === "learn" ? config.learn.name : sectionName(a.section),
+    article_author: a.author ? a.author.name : undefined,
+  };
+  setMeta({
+    title: a.title, description: a.dek || truncate(plainText(a.body), 180), image: cover || undefined, url: location.origin + articleUrl(a),
+    analytics: { content_group: tracked.article_section, ...tracked },
+  });
 
   mount(main, html`
     ${!isPublic(a) ? html`<div class="preview-banner"><div class="container">
@@ -109,6 +117,7 @@ function renderArticle(a) {
   // Reading progress
   const bar = $("#progress");
   const body = $(".article-body");
+  enhance(body);
   const onScroll = () => {
     const r = body.getBoundingClientRect();
     const total = r.height - innerHeight * 0.6;
@@ -119,6 +128,7 @@ function renderArticle(a) {
   onScroll();
 
   if (isPublic(a)) {
+    trackReading(body, { ...tracked, read_minutes: minutes });
     const key = "fj-viewed-" + a.slug;
     try { if (!sessionStorage.getItem(key)) { sessionStorage.setItem(key, "1"); db.recordView(a.slug); } } catch (_) { db.recordView(a.slug); }
   }

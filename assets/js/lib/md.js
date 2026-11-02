@@ -54,6 +54,17 @@ export function renderMarkdown(md, { figures = true } = {}) {
   tpl.innerHTML = clean;
   const root = tpl.content;
 
+  // ```chart blocks become interactive charts (rendered by enhance() / charts.js)
+  root.querySelectorAll("pre > code.language-chart").forEach((code) => {
+    const fig = document.createElement("figure");
+    fig.className = "fj-chart";
+    const src = document.createElement("pre");
+    src.className = "fj-chart-src";
+    src.textContent = code.textContent;
+    fig.append(src);
+    code.parentElement.replaceWith(fig);
+  });
+
   if (figures) {
     // A paragraph holding only an image becomes a captioned figure (caption = image title).
     root.querySelectorAll("p > img").forEach((img) => {
@@ -105,4 +116,10 @@ export function renderMarkdown(md, { figures = true } = {}) {
 export function sanitizeHTML(dirty) {
   setupPurify();
   return DOMPurify.sanitize(String(dirty || ""), { FORBID_ATTR: ["style", "class"], ADD_TAGS: ["iframe"] });
+}
+
+/** Bring rendered Markdown to life: interactive charts load only on pages that have them. */
+export function enhance(root) {
+  if (!root || !root.querySelector || !root.querySelector("figure.fj-chart:not(.is-ready)")) return Promise.resolve();
+  return import("/assets/js/lib/charts.js").then((m) => m.hydrateCharts(root)).catch((err) => console.error("[Fershman] charts", err));
 }
