@@ -2,7 +2,10 @@
 import { db, config } from "../data/db.js";
 import { html, raw, mount, icon, fmtDate, fmtDateTime, timeAgo, safeUrl, toLocalInput, fromLocalInput, debounce, $, $$ } from "../lib/util.js";
 import { toast, confirmDialog, openPanel, copyText, downloadFile } from "../lib/ui.js";
-import { roleAtLeast, friendlyError, mergeRecruiting, applicationStatus, STAGES, STAGE_LABELS, isMarketing } from "../data/shared.js";
+import {
+  roleAtLeast, friendlyError, mergeRecruiting, applicationStatus, isMarketing, wordsIn,
+  APP_STAFF_LABELS, APP_TONES, APP_QUESTIONS, RECOMMENDATIONS, RECOMMENDATION_TONES, GRANT_ROLES,
+} from "../data/shared.js";
 
 const TABS = [
   { key: "applications", label: "Applications" },
@@ -50,84 +53,215 @@ export async function recruiting(ctx) {
 }
 
 // ---------------------------------------------------------------- Applications
+// Written by applicants in the portal. Recruiters review; editors and admins accept or decline.
+const FILTERS = [["submitted", "New"], ["reviewing", "Reviewing"], ["interview", "Interview"], ["accepted", "Accepted"], ["declined", "Declined"], ["draft", "Drafts"], ["all", "All"]];
+const statusPill = (s) => html`<span class="pill" data-tone="${APP_TONES[s] || "muted"}">${APP_STAFF_LABELS[s] || s}</span>`;
+const average = (list) => {
+  const scores = list.map((r) => Number(r.score)).filter(Boolean);
+  return scores.length ? Math.round((scores.reduce((x, y) => x + y, 0) / scores.length) * 10) / 10 : null;
+};
+
 async function applications(el, ctx) {
-  let apps = (await db.listMessages()).filter((m) => m.kind === "application");
-  let stage = "all";
+  const canDecide = roleAtLeast(ctx.role, "editor");
+  const [apps, periodList, legacy] = await Promise.all([
+    db.listApplications(),
+    db.adminListRecruitingPeriods().catch(() => []),
+    db.listMessages().then((m) => m.filter((x) => x.kind === "application").length).catch(() => 0),
+  ]);
+  let filter = apps.some((a) => a.status === "submitted") ? "submitted" : "all";
+  let period = "all";
   let q = "";
-  const count = (s) => (s === "all" ? apps.length : apps.filter((a) => (a.stage || "new") === s).length);
+  const periodName = (id) => (periodList.find((p) => p.id === id) || {}).title || "";
+  const inPeriod = (a) => period === "all" || (period === "none" ? !a.period_id : a.period_id === period);
+  const count = (f) => apps.filter(inPeriod).filter((a) => f === "all" || a.status === f).length;
+  const visible = () => apps.filter(inPeriod).filter((a) => filter === "all" || a.status === filter)
+    .filter((a) => !q || `${a.full_name} ${a.email} ${((a.answers || {}).roles || []).join(" ")}`.toLowerCase().includes(q));
   mount(el, html`
     <div class="toolbar">
-      <div class="seg" role="group" aria-label="Filter by stage">
-        ${["all", ...STAGES].map((s) => html`<button type="button" data-stage-filter="${s}" aria-pressed="${s === stage ? "true" : "false"}">${s === "all" ? "All" : STAGE_LABELS[s]} <span class="n">${count(s)}</span></button>`)}
-      </div>
+      <div class="seg" role="group" aria-label="Filter by status">${FILTERS.map(([k, l]) => html`<button type="button" data-filter="${k}" aria-pressed="${k === filter ? "true" : "false"}">${l} <span class="n">${count(k)}</span></button>`)}</div>
+      ${periodList.length ? html`<select class="select" data-period aria-label="Recruiting period" style="width:auto"><option value="all">All periods</option>${periodList.map((p) => html`<option value="${p.id}">${p.title}</option>`)}<option value="none">Outside a period</option></select>` : ""}
       <input class="input search" type="search" placeholder="Search applicants" aria-label="Search applicants" data-q>
       <span class="spacer"></span>
       <button class="btn" type="button" data-export>${icon("download")} Export CSV</button>
     </div>
+    ${legacy ? html`<p class="small muted" style="margin:0 0 14px">${legacy} application${legacy === 1 ? "" : "s"} sent with the old Apply form ${legacy === 1 ? "is" : "are"} in the <a href="#/inbox">Inbox</a>.</p>` : ""}
     <div class="card table-card" id="apps"></div>`);
   const draw = () => {
-    $$("[data-stage-filter]", el).forEach((b) => { b.querySelector(".n").textContent = count(b.dataset.stageFilter); });
-    const rows = apps.filter((a) => (stage === "all" || (a.stage || "new") === stage) && (!q || `${a.name} ${a.email} ${(a.data || {}).roles || ""}`.toLowerCase().includes(q)));
+    $$("[data-filter]", el).forEach((b) => { b.querySelector(".n").textContent = count(b.dataset.filter); b.setAttribute("aria-pressed", String(b.dataset.filter === filter)); });
+    const rows = visible();
     mount($("#apps", el), rows.length ? html`<table class="table table-responsive">
-      <thead><tr><th>Applicant</th><th>Roles</th><th>Year</th><th>Applied</th><th>Stage</th></tr></thead>
-      <tbody>${rows.map((a) => html`<tr class="clickable" data-id="${a.id}">
-        <td data-cell="main"><div class="t-title" style="font-family:var(--sans)">${a.name || "—"}</div><div class="t-sub">${a.email}</div></td>
-        <td data-cell="hide" class="small">${(a.data || {}).roles || ""}</td>
-        <td data-cell="hide" class="small muted">${(a.data || {}).year || ""}</td>
-        <td class="small muted">${timeAgo(a.created_at)}</td>
-        <td data-stop><select class="select" data-stage aria-label="Stage for ${a.name}">${STAGES.map((s) => html`<option value="${s}" ${s === (a.stage || "new") ? raw("selected") : ""}>${STAGE_LABELS[s]}</option>`)}</select></td>
-      </tr>`)}</tbody></table>`
-      : html`<div class="table-empty"><strong>${apps.length ? "No applicants in this stage" : "No applications yet"}</strong>${apps.length ? "" : "Applications from the Apply page land here."}</div>`);
+      <thead><tr><th>Applicant</th><th>Roles</th><th>Year</th><th>Submitted</th><th>Reviews</th><th>Status</th></tr></thead>
+      <tbody>${rows.map((a) => { const ans = a.answers || {}; return html`<tr class="clickable" data-id="${a.id}" tabindex="0">
+        <td data-cell="main"><div class="t-title" style="font-family:var(--sans)">${a.full_name || "Unnamed applicant"}</div><div class="t-sub">${a.email}</div></td>
+        <td data-cell="hide" class="small">${(ans.roles || []).join(", ")}</td>
+        <td data-cell="hide" class="small muted">${ans.year || ""}</td>
+        <td class="small muted">${a.submitted_at ? fmtDate(a.submitted_at) : "Not yet"}</td>
+        <td class="small">${a.review_count ? `${a.review_count} (avg ${a.review_avg ?? "–"})` : "None"}</td>
+        <td>${statusPill(a.status)}</td>
+      </tr>`; })}</tbody></table>`
+      : html`<div class="table-empty"><strong>${apps.length ? "Nothing here" : "No applications yet"}</strong>${apps.length ? "Try another status or period." : "Applications written in the portal appear here as soon as people start them."}</div>`);
   };
-  const setStage = async (a, value) => {
-    try {
-      await db.updateMessage(a.id, { stage: value, status: a.status === "new" ? "read" : a.status });
-      a.stage = value;
-      toast(`Moved to ${STAGE_LABELS[value]}`);
-      ctx.refreshCounts();
-      draw();
-    } catch (ex) { toast(friendlyError(ex), { error: true }); draw(); }
-  };
-  const detail = (a) => {
-    const d = a.data || {};
-    const link = (v) => (safeUrl(v) && /^https?:/i.test(v) ? html`<a href="${safeUrl(v)}" target="_blank" rel="noopener">${v}</a>` : v || "—");
-    const p = openPanel({
-      title: a.name || a.email,
-      body: html`
-        <div class="row"><select class="select" data-stage-detail style="width:auto">${STAGES.map((s) => html`<option value="${s}" ${s === (a.stage || "new") ? raw("selected") : ""}>${STAGE_LABELS[s]}</option>`)}</select><span class="small muted">Applied ${fmtDateTime(a.created_at)}</span></div>
-        <dl class="kv">
-          <dt>Email</dt><dd><a href="mailto:${a.email}">${a.email}</a></dd>
-          <dt>Year</dt><dd>${d.year || "—"}</dd><dt>Major</dt><dd>${d.major || "—"}</dd>
-          <dt>Roles</dt><dd>${d.roles || "—"}</dd>
-          <dt>Writing sample</dt><dd>${link(d.sample)}</dd><dt>Résumé</dt><dd>${link(d.resume)}</dd>
-          <dt>Heard via</dt><dd>${d.heard || "—"}</dd><dt>Met us</dt><dd>${d.met || "—"}</dd>
-        </dl>
-        <div><h3 class="small" style="font-weight:700;margin-bottom:6px">Why Fershman?</h3><div class="msg-body" style="margin-top:0;padding-top:0;border:0">${a.body || "—"}</div></div>
-        ${d.pitch ? html`<div><h3 class="small" style="font-weight:700;margin-bottom:6px">Story pitch</h3><div class="msg-body" style="margin-top:0;padding-top:0;border:0">${d.pitch}</div></div>` : ""}`.value,
-      foot: html`<a class="btn btn-accent" href="mailto:${a.email}?subject=${encodeURIComponent("Your application to The Fershman Journal")}">${icon("mail")} Email applicant</a>`.value,
+
+  const exportCsv = () => {
+    const rows = visible();
+    if (!rows.length) { toast("There are no applications in this view.", { error: true }); return; }
+    const head = ["Name", "Email", "Status", "Period", "Year", "Major", "Graduation", "Roles", "Heard about us", "Met us", "Writing sample", "LinkedIn or résumé", "File", "Started", "Submitted", "Reviews", "Average score", "Why Fershman?", "Pitch"];
+    const lines = rows.map((a) => {
+      const x = a.answers || {};
+      return [a.full_name, a.email, APP_STAFF_LABELS[a.status], periodName(a.period_id), x.year, x.major, x.graduation, (x.roles || []).join(", "), x.heard, x.met,
+        x.sample, x.linkedin, a.file_name, a.created_at, a.submitted_at, a.review_count, a.review_avg, x.why, x.pitch].map(csvCell).join(",");
     });
-    $("[data-stage-detail]", p.el).addEventListener("change", (e) => setStage(a, e.target.value));
-    if (a.status === "new") { db.updateMessage(a.id, { status: "read" }).catch(() => {}); a.status = "read"; }
+    downloadFile(`fershman-applications-${new Date().toISOString().slice(0, 10)}.csv`, [head.map(csvCell).join(","), ...lines].join("\n"), "text/csv");
   };
-  el.addEventListener("change", (e) => {
-    if (!e.target.matches("[data-stage]")) return;
-    const a = apps.find((x) => x.id === e.target.closest("tr").dataset.id);
-    setStage(a, e.target.value);
-  });
+
+  const detail = async (a) => {
+    let reviews = await db.listReviews(a.id).catch(() => []);
+    const ans = a.answers || {};
+    const link = (v) => (v && /^https?:\/\//i.test(v) ? html`<a href="${safeUrl(v)}" target="_blank" rel="noopener">${v}</a>` : v || "—");
+    const p = openPanel({
+      title: a.full_name || a.email,
+      wide: true,
+      body: html`<div class="review-cols">
+        <div class="review-main">
+          <div class="row">${statusPill(a.status)}<span class="small muted">${[ans.year, ans.major, ans.graduation ? `graduating ${ans.graduation}` : ""].filter(Boolean).join(", ")}</span></div>
+          ${APP_QUESTIONS.map((x) => html`<section class="review-qa"><h3>${x.label}</h3><p>${ans[x.name] || "No answer."}</p><span class="small muted">${wordsIn(ans[x.name])} words</span></section>`)}
+          <dl class="kv">
+            <dt>Email</dt><dd><a href="mailto:${a.email}">${a.email}</a></dd>
+            <dt>Roles</dt><dd>${(ans.roles || []).join(", ") || "—"}</dd>
+            <dt>Writing sample</dt><dd>${link(ans.sample)}</dd>
+            <dt>LinkedIn or résumé</dt><dd>${link(ans.linkedin)}</dd>
+            <dt>File</dt><dd>${a.file_path ? html`<button type="button" class="link-inline" data-open-file>${a.file_name || "Open the file"}</button>` : "—"}</dd>
+            <dt>Heard via</dt><dd>${ans.heard || "—"}</dd>
+            <dt>Met us</dt><dd>${ans.met || "—"}</dd>
+            <dt>Period</dt><dd>${periodName(a.period_id) || "—"}</dd>
+            <dt>Started</dt><dd>${fmtDateTime(a.created_at)}</dd>
+            <dt>Submitted</dt><dd>${a.submitted_at ? fmtDateTime(a.submitted_at) : "Not yet"}</dd>
+          </dl>
+        </div>
+        <aside class="review-side">
+          <div data-decision-slot>${decisionCard(a, canDecide)}</div>
+          <div data-reviews-slot>${reviewsCard(reviews)}</div>
+        </aside>
+      </div>`.value,
+    });
+    const r = p.el;
+    const refreshReviews = () => {
+      mount($("[data-reviews-slot]", r), reviewsCard(reviews));
+      a.review_count = reviews.length;
+      a.review_avg = average(reviews);
+      draw();
+    };
+    r.addEventListener("change", (e) => {
+      if (e.target.id !== "d-status") return;
+      const g = $("[data-grant]", r);
+      if (g) g.hidden = e.target.value !== "accepted";
+    });
+    r.addEventListener("click", async (e) => {
+      if (e.target.closest("[data-open-file]")) {
+        const w = window.open("", "_blank");
+        try {
+          const url = await db.applicationFileUrl(a.file_path);
+          if (w) { w.opener = null; w.location = url; } else location.href = url;
+        } catch (ex) { if (w) w.close(); toast(friendlyError(ex), { error: true }); }
+      }
+      const del = e.target.closest("[data-del-review]");
+      if (del) {
+        try {
+          await db.deleteReview(del.dataset.delReview);
+          reviews = reviews.filter((x) => x.id !== del.dataset.delReview);
+          refreshReviews();
+        } catch (ex) { toast(friendlyError(ex), { error: true }); }
+      }
+    });
+    r.addEventListener("submit", async (e) => {
+      const form = e.target;
+      e.preventDefault();
+      const err = $(".form-error", form);
+      const btn = $('button[type="submit"]', form);
+      err.textContent = "";
+      const d = Object.fromEntries(new FormData(form).entries());
+      btn.disabled = true;
+      try {
+        if (form.matches("[data-decision]")) {
+          const patch = { message: String(d.message || "").trim() };
+          if (d.status) patch.status = d.status;
+          if (d.grant_role) patch.grant_role = d.grant_role;
+          const was = a.status;
+          Object.assign(a, await db.updateApplication(a.id, patch));
+          toast(a.status === "accepted" && was !== "accepted" ? `Accepted. ${a.full_name || "The applicant"} now has ${GRANT_ROLES[a.grant_role]} access.` : "Saved");
+          mount($("[data-decision-slot]", r), decisionCard(a, canDecide));
+          const pill = $(".review-main .pill", r);
+          if (pill) pill.outerHTML = statusPill(a.status).value;
+          ctx.refreshCounts();
+          draw();
+        }
+        if (form.matches("[data-review]")) {
+          if (!d.score || !d.recommendation) { err.textContent = "Choose a score and a recommendation."; return; }
+          reviews = [...reviews, await db.addReview(a.id, { score: Number(d.score), recommendation: d.recommendation, note: String(d.note || "").trim() })];
+          refreshReviews();
+          toast("Review added");
+        }
+      } catch (ex) { err.textContent = friendlyError(ex); }
+      finally { if (btn.isConnected) btn.disabled = false; }
+    });
+  };
+
   el.addEventListener("click", (e) => {
-    const f = e.target.closest("[data-stage-filter]");
-    if (f) { stage = f.dataset.stageFilter; $$("[data-stage-filter]", el).forEach((b) => b.setAttribute("aria-pressed", String(b === f))); draw(); }
-    if (e.target.closest("[data-stop]")) return;
+    const f = e.target.closest("[data-filter]");
+    if (f) { filter = f.dataset.filter; draw(); return; }
+    if (e.target.closest("[data-export]")) { exportCsv(); return; }
     const tr = e.target.closest("tr[data-id]");
-    if (tr) detail(apps.find((x) => x.id === tr.dataset.id));
-    if (e.target.closest("[data-export]")) {
-      const head = ["name", "email", "year", "major", "roles", "stage", "applied_at", "why", "pitch", "sample", "resume", "heard", "met"];
-      const lines = apps.map((a) => { const d = a.data || {}; return [a.name, a.email, d.year, d.major, d.roles, a.stage || "new", a.created_at, a.body, d.pitch, d.sample, d.resume, d.heard, d.met].map(csvCell).join(","); });
-      downloadFile(`fershman-applications-${new Date().toISOString().slice(0, 10)}.csv`, [head.join(","), ...lines].join("\n"), "text/csv");
-    }
+    const a = tr && apps.find((x) => x.id === tr.dataset.id);
+    if (a) detail(a).catch((ex) => toast(friendlyError(ex), { error: true }));
   });
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("tr[data-id]")) e.target.click(); });
+  el.addEventListener("change", (e) => { if (e.target.matches("[data-period]")) { period = e.target.value; draw(); } });
   $("[data-q]", el).addEventListener("input", debounce((e) => { q = e.target.value.trim().toLowerCase(); draw(); }, 150));
   draw();
+}
+
+function decisionCard(a, canDecide) {
+  if (a.status === "draft") {
+    return html`<section class="review-card"><h3>Decision</h3><p class="small muted">${a.submitted_at ? "Returned to the applicant for edits. You can review it again once they resubmit." : "This application is still a draft. You can review it once the applicant submits it."}</p></section>`;
+  }
+  const settled = a.status === "accepted" || a.status === "declined";
+  const first = (a.full_name || "the applicant").split(" ")[0];
+  const opts = [["submitted", "New"], ["reviewing", "Reviewing"], ["interview", "Interview"], ["accepted", "Accepted"], ["declined", "Declined"], ["draft", "Return to the applicant for edits"]];
+  return html`<section class="review-card"><h3>Decision</h3>
+    <form class="stack" data-decision style="gap:14px">
+      <div class="field"><label for="d-status">Status</label>
+        <select class="select" id="d-status" name="status" ${!canDecide && settled ? raw("disabled") : ""}>${opts.map(([v, l]) => html`<option value="${v}" ${v === a.status ? raw("selected") : ""} ${!canDecide && (v === "accepted" || v === "declined") && v !== a.status ? raw("disabled") : ""}>${l}</option>`)}</select>
+        ${canDecide ? "" : html`<span class="hint">Editors and admins accept or decline.</span>`}</div>
+      <div class="field" data-grant ${a.status === "accepted" ? "" : raw("hidden")}><label for="d-grant">Access when accepted</label>
+        <select class="select" id="d-grant" name="grant_role">${Object.entries(GRANT_ROLES).map(([v, l]) => html`<option value="${v}" ${v === a.grant_role ? raw("selected") : ""}>${l}</option>`)}</select>
+        <span class="hint">Writers can write and submit drafts. Members open the members library.</span></div>
+      <div class="field"><label for="d-msg">Note to ${first}</label><textarea class="textarea" id="d-msg" name="message" rows="4" style="min-height:96px">${a.message || ""}</textarea><span class="hint">Shown on their application page, for example an interview time and place.</span></div>
+      <p class="form-error" role="alert"></p>
+      <div class="row"><button class="btn btn-accent" type="submit">Save</button><a class="btn" href="mailto:${a.email}?subject=${encodeURIComponent("Your application to The Fershman Journal")}">${icon("mail")} Email ${first}</a></div>
+      ${a.decided_at ? html`<p class="small muted">Decided ${fmtDateTime(a.decided_at)}.</p>` : ""}
+    </form>
+  </section>`;
+}
+
+function reviewsCard(reviews) {
+  const avg = average(reviews);
+  return html`<section class="review-card"><h3>Reviews</h3>
+    <p class="small muted">${reviews.length ? `Average ${avg ?? "–"} out of 5, from ${reviews.length} review${reviews.length === 1 ? "" : "s"}.` : "No reviews yet. Only recruiters see reviews."}</p>
+    ${reviews.length ? html`<ul class="review-list">${reviews.map((r) => html`<li>
+      <div class="row" style="gap:8px"><strong class="small">${r.reviewer_name || "Reviewer"}</strong><span class="pill" data-tone="${RECOMMENDATION_TONES[r.recommendation] || "muted"}">${RECOMMENDATIONS[r.recommendation] || r.recommendation}</span><span class="spacer"></span><span class="small">${r.score ? `${r.score} of 5` : ""}</span></div>
+      ${r.note ? html`<p class="small">${r.note}</p>` : ""}
+      <div class="row" style="gap:8px"><span class="small muted">${fmtDate(r.created_at)}</span><span class="spacer"></span><button class="link-inline small" type="button" data-del-review="${r.id}">Remove</button></div>
+    </li>`)}</ul>` : ""}
+    <details class="review-add" ${reviews.length ? "" : raw("open")}><summary>Add your review</summary>
+      <form class="stack" data-review style="gap:12px;margin-top:12px">
+        <fieldset class="field"><legend class="label">Score</legend><div class="chips">${[1, 2, 3, 4, 5].map((n) => html`<label class="chip"><input type="radio" name="score" value="${n}"><span>${n}</span></label>`)}</div></fieldset>
+        <fieldset class="field"><legend class="label">Recommendation</legend><div class="chips">${Object.entries(RECOMMENDATIONS).map(([k, l]) => html`<label class="chip"><input type="radio" name="recommendation" value="${k}"><span>${l}</span></label>`)}</div></fieldset>
+        <div class="field"><label for="rv-note">Notes</label><textarea class="textarea" id="rv-note" name="note" rows="3" style="min-height:80px"></textarea></div>
+        <p class="form-error" role="alert"></p>
+        <div><button class="btn btn-accent btn-sm" type="submit">Add review</button></div>
+      </form>
+    </details>
+  </section>`;
 }
 
 // ---------------------------------------------------------------- Info sessions
@@ -384,11 +518,11 @@ async function pageSettings(el, ctx, isAdmin) {
 
 // ---------------------------------------------------------------- Recruiting periods
 async function periods(el, ctx) {
-  let list = await db.listRecruitingPeriods();
+  let list = await db.adminListRecruitingPeriods();
   const today = new Date().toISOString().slice(0, 10);
   const draw = () => mount(el, html`
     <div class="card card-pad stack" style="margin-bottom:16px">
-      <div><h2>Active recruiting periods</h2><p>Mark the weeks you're actively recruiting — posters up, info sessions running. During a period the Apply page leads with it (for example “Fall recruitment is on. Apply by October 16”), and every page of the site shows a small pop-up pointing to Apply. Applications stay open on a rolling basis outside these dates.</p></div>
+      <div><h2>Active recruiting periods</h2><p>Mark the weeks you're actively recruiting — posters up, info sessions running. During a period the Apply page leads with it (for example “Fall recruitment is on. Apply by October 16”), and every page of the site shows a small pop-up pointing to Apply. Applications stay open on a rolling basis outside these dates. Applications submitted during a period are filed under it, and an optional decisions date tells applicants when to expect an answer.</p></div>
       <div class="field-row">
         <label class="field"><span class="label">Name</span><input class="input" id="pr-title" placeholder="Fall recruitment"></label>
         <label class="field"><span class="label">Note <span class="hint">(optional, internal)</span></span><input class="input" id="pr-note" placeholder="Posters up week 2"></label>
@@ -397,24 +531,28 @@ async function periods(el, ctx) {
         <label class="field"><span class="label">Starts</span><input class="input" id="pr-start" type="date"></label>
         <label class="field"><span class="label">Ends</span><input class="input" id="pr-end" type="date"></label>
       </div>
+      <div class="field-row">
+        <label class="field"><span class="label">Decisions by <span class="hint">(optional, shown to applicants)</span></span><input class="input" id="pr-dec" type="date"></label>
+        <span></span>
+      </div>
       <div><button class="btn btn-accent" type="button" data-add-period>${icon("plus")} Add period</button></div>
     </div>
     <div class="card table-card">${list.length ? html`<table class="table table-responsive"><thead><tr><th>Period</th><th>Dates</th><th>Status</th><th class="t-actions"><span class="sr-only">Actions</span></th></tr></thead><tbody>
       ${list.map((p) => { const st = p.ends_on < today ? "Past" : p.starts_on > today ? "Upcoming" : "Active now";
         return html`<tr data-id="${p.id}"><td data-cell="main"><div class="t-title">${p.title}</div>${p.note ? html`<div class="t-sub">${p.note}</div>` : ""}</td>
-          <td class="small">${fmtDate(p.starts_on + "T12:00:00")} to ${fmtDate(p.ends_on + "T12:00:00")}</td>
+          <td class="small">${fmtDate(p.starts_on + "T12:00:00")} to ${fmtDate(p.ends_on + "T12:00:00")}${p.decisions_on ? html`<div class="t-sub">Decisions by ${fmtDate(p.decisions_on + "T12:00:00")}</div>` : ""}</td>
           <td><span class="pill ${st === "Active now" ? "pill-published" : st === "Upcoming" ? "pill-scheduled" : ""}">${st}</span></td>
           <td class="t-actions"><button class="icon-btn" type="button" data-del-period aria-label="Delete ${p.title}">${icon("trash")}</button></td></tr>`; })}
     </tbody></table>` : html`<div class="table-empty"><strong>No recruiting periods yet</strong>Add the next one above.</div>`}</div>`);
   el.addEventListener("click", async (e) => {
     try {
       if (e.target.closest("[data-add-period]")) {
-        const data = { title: $("#pr-title", el).value.trim(), note: $("#pr-note", el).value.trim() || null, starts_on: $("#pr-start", el).value, ends_on: $("#pr-end", el).value };
+        const data = { title: $("#pr-title", el).value.trim(), note: $("#pr-note", el).value.trim() || null, starts_on: $("#pr-start", el).value, ends_on: $("#pr-end", el).value, decisions_on: $("#pr-dec", el).value || null };
         if (!data.title || !data.starts_on || !data.ends_on) { toast("Give the period a name, a start and an end date.", { error: true }); return; }
         if (data.ends_on < data.starts_on) { toast("The end date is before the start date.", { error: true }); return; }
         await db.saveRecruitingPeriod(data);
         toast("Recruiting period added");
-        list = await db.listRecruitingPeriods();
+        list = await db.adminListRecruitingPeriods();
         draw();
       }
       const del = e.target.closest("[data-del-period]");

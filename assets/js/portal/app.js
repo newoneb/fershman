@@ -1,10 +1,11 @@
-// Members portal: sign in, request access, and the library of internal materials.
+// Portal: sign in, applications, and the members library.
 import { db, LIVE, config, dbError } from "../data/db.js";
-import { html, mount, icon, fmtDate, fmtBytes, debounce, params, $, $$ } from "../lib/util.js";
+import { html, raw, mount, icon, fmtDate, fmtBytes, debounce, params, $, $$ } from "../lib/util.js";
 import { toast, installImageFallbacks } from "../lib/ui.js";
 import { roleAtLeast, itemKind, friendlyError } from "../data/shared.js";
-import { renderAuth, renderNoAccess } from "../shared/auth-ui.js";
+import { renderAuth } from "../shared/auth-ui.js";
 import { kindIcon, kindLabel, openUploadPanel, openViewer } from "../shared/portal-ui.js";
+import { applicationView } from "./application.js";
 
 const root = document.getElementById("app");
 const TYPE_GROUPS = {
@@ -14,8 +15,52 @@ const TYPE_GROUPS = {
   video: { label: "Video", kinds: ["video", "audio"] },
   links: { label: "Links", kinds: ["link"] },
 };
+const DEMO_ROLES = [["admin", "Admin"], ["editor", "Editor"], ["writer", "Writer"], ["member", "Member"], ["pending", "Applicant"]];
 
-async function library(session) {
+let session = null;
+let myApp = null;
+
+function shell(view) {
+  const role = session.profile.role;
+  const member = roleAtLeast(role, "member");
+  const tab = (href, label, key) => html`<a href="${href}" ${view === key ? raw('aria-current="page"') : ""}>${label}</a>`;
+  return html`
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="portal-top"><div class="container">
+      <a class="portal-brand" href="/portal/"><strong>${config.site.shortName}</strong><span>Portal</span></a>
+      <nav class="portal-nav" aria-label="Portal">
+        ${member ? tab("/portal/#library", "Library", "library") : ""}
+        ${!member || myApp ? tab("/portal/#application", "Your application", "application") : ""}
+        ${roleAtLeast(role, "writer") ? html`<a href="/admin/">Admin</a>` : ""}
+      </nav>
+      <span class="spacer"></span>
+      <a class="btn btn-ghost btn-sm" href="/">The journal</a>
+      <button class="btn btn-ghost btn-sm" type="button" data-signout>Sign out</button>
+    </div></header>
+    ${LIVE ? "" : html`<div class="app-banner row" role="note"><span>Demo mode: the portal uses sample files and keeps everything in this browser only.</span><span class="spacer"></span><label class="row" style="gap:8px;flex-wrap:nowrap">View as <select class="select" data-demo-role style="min-height:32px;padding:4px 8px;width:auto">${DEMO_ROLES.map(([r, l]) => html`<option value="${r}" ${r === role ? raw("selected") : ""}>${l}</option>`)}</select></label></div>`}
+    <main id="main" class="container portal-main" tabindex="-1"></main>`;
+}
+
+async function route() {
+  const hash = location.hash.replace(/^#/, "");
+  const member = roleAtLeast(session.profile.role, "member");
+  const view = !member || hash === "application" || hash === "apply" ? "application" : "library";
+  mount(root, shell(view));
+  const main = $("#main");
+  try {
+    if (view === "application") {
+      document.title = `Your application — ${config.site.shortName} Portal`;
+      await applicationView(main, { session, application: myApp, onChange: (a) => { myApp = a; } });
+    } else {
+      await library(main);
+    }
+  } catch (err) {
+    console.error(err);
+    mount(main, html`<div class="empty"><h2>This page couldn't load</h2><p>${friendlyError(err)}</p></div>`);
+  }
+}
+
+async function library(main) {
   const role = session.profile.role;
   const canEdit = roleAtLeast(role, "editor");
   const name = session.profile.full_name || session.user.email;
@@ -24,31 +69,20 @@ async function library(session) {
   let col = "";
   let type = "all";
 
-  mount(root, html`
-    <a class="skip-link" href="#main">Skip to content</a>
-    <header class="portal-top"><div class="container">
-      <a class="portal-brand" href="/portal/"><strong>${config.site.shortName}</strong><span>Members</span></a>
-      <span class="spacer"></span>
-      ${roleAtLeast(role, "writer") ? html`<a class="btn btn-sm" href="/admin/">Admin</a>` : ""}
-      <a class="btn btn-ghost btn-sm" href="/">The journal</a>
-      <button class="btn btn-ghost btn-sm" type="button" data-signout>Sign out</button>
-    </div></header>
-    ${LIVE ? "" : html`<div class="app-banner row" role="note"><span>Demo mode: this library uses sample files and saves uploads in this browser only.</span><span class="spacer"></span><label class="row" style="gap:8px;flex-wrap:nowrap">View as <select class="select" data-demo-role style="min-height:32px;padding:4px 8px;width:auto">${["admin", "editor", "writer", "member", "pending"].map((r) => html`<option value="${r}" ${r === role ? html`selected` : ""}>${r[0].toUpperCase() + r.slice(1)}</option>`)}</select></label></div>`}
-    <main id="main" class="container" tabindex="-1" style="padding-bottom:80px">
-      <div class="portal-hero">
-        <h1>Library</h1>
-        <p>Decks, models and recordings from Fershman meetings. Signed in as ${name}.</p>
+  mount(main, html`
+    <div class="portal-hero">
+      <h1>Library</h1>
+      <p>Decks, models and recordings from Fershman meetings. Signed in as ${name}.</p>
+    </div>
+    <div class="portal-toolbar">
+      <div class="toolbar" style="margin:0">
+        <input class="input search" type="search" placeholder="Search the library" aria-label="Search the library" data-q>
+        <select class="select" data-col aria-label="Collection"><option value="">All collections</option></select>
+        <div class="seg" role="group" aria-label="File type">${Object.entries(TYPE_GROUPS).map(([k, g]) => html`<button type="button" data-type="${k}" aria-pressed="${k === type ? "true" : "false"}">${g.label}</button>`)}</div>
+        ${canEdit ? html`<span class="spacer"></span><button class="btn btn-accent" type="button" data-add>${icon("upload")} Add files</button>` : ""}
       </div>
-      <div class="portal-toolbar">
-        <div class="toolbar" style="margin:0">
-          <input class="input search" type="search" placeholder="Search the library" aria-label="Search the library" data-q>
-          <select class="select" data-col aria-label="Collection"><option value="">All collections</option></select>
-          <div class="seg" role="group" aria-label="File type">${Object.entries(TYPE_GROUPS).map(([k, g]) => html`<button type="button" data-type="${k}" aria-pressed="${k === type ? "true" : "false"}">${g.label}</button>`)}</div>
-          ${canEdit ? html`<span class="spacer"></span><button class="btn btn-accent" type="button" data-add>${icon("upload")} Add files</button>` : ""}
-        </div>
-      </div>
-      <div id="lib" aria-live="polite"><div class="items" style="margin-top:28px">${Array.from({ length: 6 }, () => html`<div class="skeleton" style="height:96px;border-radius:12px"></div>`)}</div></div>
-    </main>`);
+    </div>
+    <div id="lib" aria-live="polite"><div class="items" style="margin-top:28px">${Array.from({ length: 6 }, () => html`<div class="skeleton" style="height:96px;border-radius:12px"></div>`)}</div></div>`);
 
   const collections = () => {
     const latest = new Map();
@@ -93,7 +127,7 @@ async function library(session) {
   const load = async () => {
     try {
       items = await db.listPortalItems();
-      const sel = $("[data-col]");
+      const sel = $("[data-col]", main);
       const current = sel.value;
       sel.innerHTML = html`<option value="">All collections</option>${collections().map((c) => html`<option value="${c}">${c}</option>`)}`.value;
       sel.value = collections().includes(current) ? current : "";
@@ -104,19 +138,16 @@ async function library(session) {
     }
   };
 
-  root.addEventListener("click", async (e) => {
-    if (e.target.closest("[data-signout]")) { await db.signOut(); location.href = "/portal/"; return; }
+  main.addEventListener("click", (e) => {
     if (e.target.closest("[data-add]")) openUploadPanel({ collections: collections(), defaultCollection: col, onDone: load });
     const t = e.target.closest("[data-type]");
-    if (t) { type = t.dataset.type; $$("[data-type]").forEach((b) => b.setAttribute("aria-pressed", String(b === t))); draw(); }
+    if (t) { type = t.dataset.type; $$("[data-type]", main).forEach((b) => b.setAttribute("aria-pressed", String(b === t))); draw(); }
     const card = e.target.closest(".item[data-id]");
     if (card) openViewer(items.find((i) => i.id === card.dataset.id), { canEdit, collections: collections(), onChanged: load });
   });
-  const demoSel = $("[data-demo-role]");
-  if (demoSel) demoSel.addEventListener("change", async (e) => { await db.setDemoRole(e.target.value); location.reload(); });
-  $("[data-q]").addEventListener("input", debounce((e) => { q = e.target.value.trim().toLowerCase(); draw(); }, 150));
-  $("[data-col]").addEventListener("change", (e) => { col = e.target.value; draw(); });
-  document.title = `Library — ${config.site.shortName} Members`;
+  $("[data-q]", main).addEventListener("input", debounce((e) => { q = e.target.value.trim().toLowerCase(); draw(); }, 150));
+  $("[data-col]", main).addEventListener("change", (e) => { col = e.target.value; draw(); });
+  document.title = `Library — ${config.site.shortName} Portal`;
   await load();
 }
 
@@ -131,26 +162,25 @@ async function boot() {
     if (event === "PASSWORD_RECOVERY") { recovering = true; renderAuth(root, { context: "portal", mode: "reset", onDone: () => location.replace("/portal/") }); }
     if (event === "SIGNED_OUT") location.replace("/portal/");
   });
-  const session = await db.getSession();
+  session = await db.getSession();
   if (recovering && session) {
     renderAuth(root, { context: "portal", mode: "reset", onDone: () => location.replace("/portal/") });
     return;
   }
   if (!session) {
-    renderAuth(root, { context: "portal", onDone: () => location.reload() });
+    const intent = /^#(apply|application)$/.test(location.hash) ? "apply" : "";
+    renderAuth(root, { context: "portal", intent, onDone: () => location.reload() });
     return;
   }
-  if (!roleAtLeast(session.profile.role, "member")) {
-    renderNoAccess(root, {
-      session, context: "portal",
-      message: { title: "Thanks — you're on the list", text: "An admin needs to approve your account before you can open the library. You'll be able to sign in as soon as they do." },
-      actions: LIVE ? "" : html`<button class="btn btn-accent" type="button" data-demo-approve>Approve myself (demo only)</button>`,
-    });
-    const b = $("[data-demo-approve]");
-    if (b) b.addEventListener("click", async () => { await db.setDemoRole("member"); location.reload(); });
-    return;
-  }
-  await library(session);
+  myApp = await db.myApplication().catch(() => null);
+  document.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-signout]")) { await db.signOut(); location.href = "/portal/"; }
+  });
+  document.addEventListener("change", async (e) => {
+    if (e.target.matches("[data-demo-role]")) { await db.setDemoRole(e.target.value); location.reload(); }
+  });
+  addEventListener("hashchange", () => { route(); });
+  await route();
 }
 
 boot().catch((err) => { console.error(err); toast(friendlyError(err), { error: true }); });

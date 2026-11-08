@@ -7,12 +7,14 @@ export const ARTICLE_FIELDS = [
 ];
 export const CARD_COLUMNS =
   "id,slug,title,dek,section,topic,tags,cover_url,cover_alt,cover_caption,status,published_at,featured,big_read,author_id,view_count,created_by,created_at,updated_at";
-export const AUTHOR_FIELDS = ["slug", "name", "role_title", "team", "teams", "bio", "avatar_url", "x_url", "linkedin_url", "booking_url", "contact_email", "sort_order"];
+export const AUTHOR_FIELDS = ["slug", "name", "role_title", "team", "teams", "bio", "avatar_url", "x_url", "linkedin_url", "booking_url", "contact_email", "class_year", "major", "sort_order"];
 /** Fields people may edit on their own byline (teams and address stay with editors). */
-export const BYLINE_FIELDS = ["name", "role_title", "bio", "avatar_url", "x_url", "linkedin_url", "booking_url", "contact_email"];
+export const BYLINE_FIELDS = ["name", "role_title", "bio", "avatar_url", "x_url", "linkedin_url", "booking_url", "contact_email", "class_year", "major"];
 export const MARKETING = "Marketing";
 export const authorTeams = (a) => (a && Array.isArray(a.teams) && a.teams.length ? a.teams : [(a && a.team) || "Contributors"]);
 export const isMarketing = (a) => authorTeams(a).includes(MARKETING);
+/** House bylines such as "Fershman Editors" sign stories but aren't people, so the Team page leaves them out. */
+export const isHouseByline = (a) => Boolean(a) && (a.slug === "editors" || /^house\b/i.test(a.role_title || ""));
 /** Team order for display: config order, Marketing after Editors, then anything else in use. */
 export function teamList(configTeams = [], authors = []) {
   const t = [...configTeams];
@@ -264,8 +266,8 @@ export const RECRUITING_DEFAULTS = {
   steps: [
     { title: "Have a coffee chat", text: "Optional. Talk with a current member about what writing for Fershman is actually like." },
     { title: "Come to an info session", text: "Recommended. Learn how sections, editing and publishing work, and meet the editors." },
-    { title: "Apply", text: "Tell us why Fershman, pitch a story you'd write, and share a writing sample if you have one." },
-    { title: "Hear back", text: "We review applications on a rolling basis and reply to everyone by email." },
+    { title: "Apply in the portal", text: "Tell us why Fershman and pitch a story you'd write. Your draft saves as you go, so you can finish it later." },
+    { title: "Hear back", text: "Follow your application in the portal. We reply to everyone, and invite some applicants to a short interview." },
   ],
   roles: [
     { title: "Writer & analyst", text: "Research and publish analysis on markets, M&A, corporate strategy and macro." },
@@ -292,6 +294,7 @@ export const RECRUITING_DEFAULTS = {
     { q: "What does \"rolling basis\" mean?", a: "There's no single deadline. We review applications as they come in throughout the year and reply by email." },
     { q: "Are coffee chats and info sessions required?", a: "No, but they're the best way to understand the role and meet the people you'd work with." },
     { q: "Can I apply for more than one role?", a: "Yes. Select every role you're interested in and we'll talk through the fit." },
+    { q: "How do I check on my application?", a: "Sign in to the portal with the account you applied from. It shows where your application stands and any note from the editors." },
     { q: "I applied before. Can I apply again?", a: "Yes. Tell us what's changed since your last application." },
   ],
   confirmation: "We'll read your application and reply by email. In the meantime, come to an info session or book a coffee chat.",
@@ -305,29 +308,94 @@ export function mergeRecruiting(saved) {
   return out;
 }
 
-/** open/closed state of applications from the recruiting settings. */
-const dayLabel = (d) => new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric" });
-export function activePeriod(periods = [], now = new Date()) {
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+// ---------------------------------------------------------------- Dates in the recruiting time zone
+const DAY_MS = 864e5;
+function zoneOffset(ms, tz) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000;
+}
+/** The moment a wall-clock time happens in a time zone, in ms: zonedTime("2026-10-16", "23:59:59", "America/Chicago"). */
+export function zonedTime(day, time = "00:00:00", tz = "America/Chicago") {
+  const [y, m, d] = String(day).split("-").map(Number);
+  const [hh = 0, mm = 0, ss = 0] = String(time).split(":").map(Number);
+  const wall = Date.UTC(y, m - 1, d, hh, mm, ss);
+  return wall - zoneOffset(wall - zoneOffset(wall, tz), tz);
+}
+/** Today's date (YYYY-MM-DD) in a time zone. */
+export function todayIn(tz = "America/Chicago", now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+const onDay = (d, o) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", ...o });
+/** Date columns (YYYY-MM-DD): "October 16", "Thursday, October 16", "Oct 16", "Thursday". */
+export const dayLabel = (d) => onDay(d, { month: "long", day: "numeric" });
+export const dayLong = (d) => onDay(d, { weekday: "long", month: "long", day: "numeric" });
+export const dayShort = (d) => onDay(d, { month: "short", day: "numeric" });
+export const weekdayOf = (d) => onDay(d, { weekday: "long" });
+/** "9 days, 4 hours" until a moment. */
+export function countdown(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), min = m % 60;
+  const n = (v, w) => `${v} ${w}${v === 1 ? "" : "s"}`;
+  if (d > 0) return h ? `${n(d, "day")}, ${n(h, "hour")}` : n(d, "day");
+  if (h > 0) return min ? `${n(h, "hour")}, ${n(min, "minute")}` : n(h, "hour");
+  return n(Math.max(min, 1), "minute");
+}
+
+export function activePeriod(periods = [], now = new Date(), tz = "America/Chicago") {
+  const today = todayIn(tz, now);
   const active = periods.find((p) => p.starts_on <= today && today <= p.ends_on) || null;
   const upcoming = periods.filter((p) => p.starts_on > today).sort((a, b) => a.starts_on.localeCompare(b.starts_on))[0] || null;
   return { active, upcoming };
 }
+
+/**
+ * Where applications stand: { open, tone, label, sub, period, upcoming, until }.
+ * `until` is the closing moment (ms) when there's one to count down to.
+ * The database applies the same rule when someone submits (applications_open() in schema.sql).
+ */
 export function applicationStatus(rc, now = new Date(), periods = []) {
-  if (rc.status === "closed") return { open: false, tone: "closed", label: "Applications are closed right now" };
-  const { active, upcoming } = activePeriod(periods, now);
-  if (rc.status !== "deadline" && active) {
-    return { open: true, tone: "open", period: active, label: `${active.title} is on`, sub: `Apply by ${dayLabel(active.ends_on)}` };
-  }
-  if (rc.status !== "deadline" && upcoming && (new Date(`${upcoming.starts_on}T12:00:00`) - now) < 45 * 86400000) {
-    return { open: true, tone: "open", label: "Applications open, reviewed on a rolling basis", sub: `${upcoming.title} starts ${dayLabel(upcoming.starts_on)}` };
+  const tz = rc.timezone || "America/Chicago";
+  const t = now.getTime();
+  const { active, upcoming } = activePeriod(periods, now, tz);
+  if (rc.status === "closed") {
+    return { open: false, tone: "closed", label: "Applications are closed right now", sub: upcoming ? `${upcoming.title} starts ${dayLabel(upcoming.starts_on)}` : "", upcoming };
   }
   if (rc.status === "deadline" && rc.deadline) {
-    const end = new Date(`${rc.deadline}T23:59:59`);
-    const date = end.toLocaleDateString("en-US", { month: "long", day: "numeric" });
-    if (end < now) return { open: false, tone: "closed", label: `Applications closed on ${date}` };
-    const days = Math.ceil((end - now) / 86400000);
-    return { open: true, tone: "open", label: `Applications open until ${date}`, sub: days <= 14 ? `${days} day${days === 1 ? "" : "s"} left` : "" };
+    const until = zonedTime(rc.deadline, "23:59:59", tz);
+    if (until < t) return { open: false, tone: "closed", label: `Applications closed on ${dayLabel(rc.deadline)}`, sub: "", upcoming };
+    return { open: true, tone: "open", label: `Applications are open until ${dayLabel(rc.deadline)}`, sub: "", period: active, upcoming, until };
   }
-  return { open: true, tone: "open", label: "Applications open, reviewed on a rolling basis" };
+  if (active) {
+    return { open: true, tone: "open", label: `${active.title} is on`, sub: `Apply by ${dayLabel(active.ends_on)}`, period: active, upcoming, until: zonedTime(active.ends_on, "23:59:59", tz) };
+  }
+  const soon = upcoming && zonedTime(upcoming.starts_on, "00:00:00", tz) - t < 45 * DAY_MS;
+  return { open: true, tone: "open", label: "Applications are open, reviewed on a rolling basis", sub: soon ? `${upcoming.title} starts ${dayLabel(upcoming.starts_on)}` : "", upcoming };
+}
+
+// ---------------------------------------------------------------- Applications (written in the portal)
+export const APP_STATUS_LABELS = { draft: "Draft", submitted: "Submitted", reviewing: "Under review", interview: "Interview", accepted: "Accepted", declined: "Declined" };
+/** The same states as the editors see them. */
+export const APP_STAFF_LABELS = { draft: "Draft", submitted: "New", reviewing: "Reviewing", interview: "Interview", accepted: "Accepted", declined: "Declined" };
+export const APP_TONES = { draft: "muted", submitted: "new", reviewing: "active", interview: "active", accepted: "ok", declined: "muted" };
+/** The applicant's progress tracker. */
+export const APP_STEPS = ["Application", "Review", "Interview", "Decision"];
+export const appStep = (status) => ({ submitted: 1, reviewing: 1, interview: 2, accepted: 3, declined: 3 })[status] || 0;
+export const APP_QUESTIONS = [
+  { name: "why", label: "Why Fershman?", hint: "What draws you to markets, deals or policy, and what would you bring? Around 100 to 250 words.", limit: 250, rows: 8 },
+  { name: "pitch", label: "Pitch the first story you'd write", hint: "Two or three sentences: the argument, and why it matters now.", limit: 120, rows: 4 },
+];
+export const YEARS = ["First year", "Second year", "Third year", "Fourth year", "Graduate student", "Other"];
+export const HEARD = ["A friend or member", "Info session", "Activities fair", "Instagram", "LinkedIn", "Reading the journal", "Other"];
+export const MET = ["Coffee chat", "Info session", "Both", "Not yet"];
+export const APP_FILE_MB = 10;
+export const RECOMMENDATIONS = { advance: "Advance", hold: "Hold", decline: "Decline" };
+export const RECOMMENDATION_TONES = { advance: "ok", hold: "active", decline: "muted" };
+export const GRANT_ROLES = { writer: "Writer", member: "Member" };
+export const wordsIn = (s) => (String(s || "").trim().match(/\S+/g) || []).length;
+/** Adds review_count and review_avg to an application row. */
+export function withReviewStats(a, reviews = []) {
+  const scores = reviews.map((r) => Number(r.score)).filter(Boolean);
+  return { ...a, review_count: reviews.length, review_avg: scores.length ? Math.round((scores.reduce((x, y) => x + y, 0) / scores.length) * 10) / 10 : null };
 }

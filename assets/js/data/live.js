@@ -4,7 +4,7 @@ import { uid, slugify } from "../lib/util.js";
 import {
   normalizeAuthor, BYLINE_FIELDS,
   CARD_COLUMNS, SETTINGS_DEFAULTS, cleanArticle, sortAuthors, pick, AUTHOR_FIELDS,
-  safeFileName, guessMime, roleAtLeast,
+  safeFileName, guessMime, roleAtLeast, withReviewStats,
 } from "./shared.js";
 
 function loadScript(src) {
@@ -280,7 +280,7 @@ export async function createLiveAdapter(config) {
         roleAtLeast(r, "editor") ? head(sb.from("messages").select("id", { count: "exact", head: true }).eq("status", "new")) : 0,
         roleAtLeast(r, "admin") ? head(sb.from("profiles").select("id", { count: "exact", head: true }).eq("role", "pending")) : 0,
       ]);
-      const newApplications = s ? await head(sb.from("messages").select("id", { count: "exact", head: true }).eq("kind", "application").eq("stage", "new")) : 0;
+      const newApplications = s && s.recruiter ? await head(sb.from("applications").select("id", { count: "exact", head: true }).eq("status", "submitted")) : 0;
       return { published, scheduled, review, drafts, subscribers, newMessages, pending, newApplications };
     },
 
@@ -354,17 +354,69 @@ export async function createLiveAdapter(config) {
     async deleteRegistration(id) {
       unwrap(await sb.from("session_registrations").delete().eq("id", id));
     },
+    // Visitors can read the dates but not the internal note (column grants in schema.sql).
     async listRecruitingPeriods() {
+      return unwrap(await sb.from("recruiting_periods").select("id,title,starts_on,ends_on,decisions_on").order("starts_on", { ascending: false })) || [];
+    },
+    async adminListRecruitingPeriods() {
       return unwrap(await sb.from("recruiting_periods").select("*").order("starts_on", { ascending: false })) || [];
     },
     async saveRecruitingPeriod(input) {
-      const row = pick(input, ["title", "starts_on", "ends_on", "note"]);
+      const row = pick(input, ["title", "starts_on", "ends_on", "note", "decisions_on"]);
       const q = input.id ? sb.from("recruiting_periods").update(row).eq("id", input.id) : sb.from("recruiting_periods").insert(row);
       return unwrap(await q.select().single());
     },
     async deleteRecruitingPeriod(id) {
       unwrap(await sb.from("recruiting_periods").delete().eq("id", id));
     },
+    // ---------- Applications (portal) ----------
+    // The database decides what each person may change: see guard_application() in schema.sql.
+    async myApplication() {
+      const { data } = await sb.auth.getSession();
+      const user = data && data.session && data.session.user;
+      if (!user) return null;
+      const rows = unwrap(await sb.from("applications").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1));
+      return (rows && rows[0]) || null;
+    },
+    async saveApplication(input, id) {
+      const row = pick(input, ["full_name", "answers", "file_path", "file_name"]);
+      const q = id ? sb.from("applications").update(row).eq("id", id) : sb.from("applications").insert(row);
+      return unwrap(await q.select().single());
+    },
+    async submitApplication(id) {
+      return unwrap(await sb.from("applications").update({ status: "submitted" }).eq("id", id).select().single());
+    },
+    async uploadApplicationFile(file) {
+      const { data } = await sb.auth.getSession();
+      const user = data && data.session && data.session.user;
+      if (!user) throw new Error("Your session ended. Sign in again to upload the file.");
+      const path = `${user.id}/${uid().slice(0, 8)}-${safeFileName(file.name)}`;
+      unwrap(await sb.storage.from("applications").upload(path, file, { upsert: false, contentType: file.type || guessMime(file.name) }));
+      return { file_path: path, file_name: file.name };
+    },
+    async removeApplicationFile(path) {
+      if (path) await sb.storage.from("applications").remove([path]);
+    },
+    async applicationFileUrl(path) {
+      return unwrap(await sb.storage.from("applications").createSignedUrl(path, 60 * 60)).signedUrl;
+    },
+    async listApplications() {
+      const rows = unwrap(await sb.from("applications").select("*, application_reviews(score)").order("created_at", { ascending: false }).limit(2000));
+      return (rows || []).map(({ application_reviews: r, ...a }) => withReviewStats(a, r || []));
+    },
+    async updateApplication(id, patch) {
+      return unwrap(await sb.from("applications").update(pick(patch, ["status", "message", "grant_role"])).eq("id", id).select().single());
+    },
+    async listReviews(applicationId) {
+      return unwrap(await sb.from("application_reviews").select("*").eq("application_id", applicationId).order("created_at")) || [];
+    },
+    async addReview(applicationId, { score, recommendation, note }) {
+      return unwrap(await sb.from("application_reviews").insert({ application_id: applicationId, score: Number(score) || null, recommendation, note: note || "" }).select().single());
+    },
+    async deleteReview(id) {
+      unwrap(await sb.from("application_reviews").delete().eq("id", id));
+    },
+
     async updateMyByline(patch) {
       const s = await api.getSession();
       const id = s && s.profile.author_id;

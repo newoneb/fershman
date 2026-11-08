@@ -1,10 +1,10 @@
 // Category, all-categories, authors, author, Learn and search pages.
 import { db, config } from "../data/db.js";
-import { html, raw, mount, routeParam, params, debounce, esc, $ } from "../lib/util.js";
-import { initChrome, setMeta } from "./chrome.js";
+import { html, raw, mount, routeParam, params, debounce, esc, icon, initials, safeUrl, fmtDate, $ } from "../lib/util.js";
+import { initChrome, setMeta, chromeData } from "./chrome.js";
 import { track } from "./analytics.js";
 import { story, articleUrl, sectionUrl, avatar, authorUrl, skeletonCards, emptyState, errorState } from "./cards.js";
-import { teamList, authorTeams } from "../data/shared.js";
+import { teamList, authorTeams, isMarketing, isHouseByline, mergeRecruiting } from "../data/shared.js";
 
 const page = document.body.dataset.page;
 const main = $("#main");
@@ -89,29 +89,124 @@ async function categoriesPage() {
   </div>`);
 }
 
+// ---------- Team ----------
+const teamId = (t) => `team-${String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** "Class of 2027, Economics" */
+function personMeta(p) {
+  const year = String(p.class_year || "").trim();
+  return [year ? (/^\d{4}$/.test(year) ? `Class of ${year}` : year) : "", String(p.major || "").trim()].filter(Boolean).join(", ");
+}
+function portrait(p, cls = "portrait") {
+  const url = safeUrl(p.avatar_url);
+  const ini = initials(p.name);
+  return html`<span class="${cls}">${url ? html`<img src="${url}" alt="" loading="lazy" decoding="async" data-fallback="portrait" data-initials="${ini}">` : html`<span class="portrait-initials" aria-hidden="true">${ini}</span>`}</span>`;
+}
+/** The Marketing team hosts coffee chats; Recruiting settings can add anyone else. */
+function chatFor(p, rc) {
+  const h = (rc.hosts || []).find((x) => x && x.author_slug === p.slug);
+  if (!h && !isMarketing(p)) return null;
+  const url = safeUrl((h && h.booking_url) || p.booking_url);
+  return { url: /^https:/i.test(url) ? url : "", email: (h && h.email) || p.contact_email || "" };
+}
+
 async function authorsPage() {
-  initChrome({ active: null });
-  setMeta({ title: "Authors", description: "The analysts, editors and writers behind The Fershman Journal." });
-  const authors = await db.listAuthors();
-  const teams = teamList(config.authorTeams, authors);
-  const grouped = teams.map((t) => ({ team: t, people: authors.filter((a) => authorTeams(a).includes(t)) })).filter((g) => g.people.length);
-  mount(main, html`<div class="container page">
-    <header class="page-head"><h1>Authors</h1><p>The analysts, editors and writers behind the journal.</p></header>
-    ${grouped.length ? grouped.map((g) => html`
-      <section class="team" aria-label="${g.team}">
-        <h2>${g.team}</h2>
-        <ul class="people">${g.people.map((p) => html`
-          <li><a class="person" href="${authorUrl(p)}">${avatar(p, "avatar-md")}<div><div class="person-name">${p.name}</div>${p.role_title ? html`<div class="person-role">${p.role_title}</div>` : ""}</div></a></li>`)}
-        </ul>
-      </section>`) : emptyState("No authors yet", "Add authors in the admin panel and they'll be listed here.")}
+  initChrome({ active: "team" });
+  setMeta({ title: "Team", description: "The students who write, edit and run The Fershman Journal." });
+  const shared = chromeData() || {};
+  const [authors, settings] = await Promise.all([db.listAuthors(), Promise.resolve(shared.settings || db.getSettings()).catch(() => ({}))]);
+  const rc = mergeRecruiting(settings && settings.recruiting);
+  const people = authors.filter((a) => !isHouseByline(a));
+  const order = teamList(config.authorTeams, people);
+  // Each person appears once, under the first of their teams in display order. Other teams show as tags.
+  const home = (p) => order.find((t) => authorTeams(p).includes(t));
+  const groups = order.map((team) => ({ team, people: people.filter((p) => home(p) === team) })).filter((g) => g.people.length);
+  if (!groups.length) {
+    return mount(main, html`<div class="container page"><header class="page-head"><h1>Team</h1></header>${emptyState("No one here yet", "Add bylines in the admin panel and they'll appear on this page.")}</div>`);
+  }
+  const card = (p, team) => {
+    const others = authorTeams(p).filter((t) => t !== team);
+    const chat = chatFor(p, rc);
+    const meta = personMeta(p);
+    return html`<li><button class="person-card" type="button" data-person="${p.slug}" aria-haspopup="dialog">
+      ${portrait(p)}
+      <span class="pc-name">${p.name}</span>
+      ${p.role_title ? html`<span class="pc-role">${p.role_title}</span>` : ""}
+      ${meta ? html`<span class="pc-meta">${meta}</span>` : ""}
+      ${others.length || chat ? html`<span class="pc-tags">${others.map((t) => html`<span class="tag">${t}</span>`)}${chat ? html`<span class="tag tag-chat">Coffee chats</span>` : ""}</span>` : ""}
+    </button></li>`;
+  };
+  mount(main, html`<div class="container page team-page">
+    <header class="team-hero">
+      <div>
+        <h1>Team</h1>
+        <p class="lede">Fershman is written, edited and run by students. Leadership sets the direction, section editors shape the coverage, and analysts and staff writers do the reporting.</p>
+      </div>
+      <nav class="team-index" aria-label="Teams"><ul>${groups.map((g) => html`<li><a href="#${teamId(g.team)}"><span>${g.team}</span><span class="n">${g.people.length}<span class="sr-only"> ${g.people.length === 1 ? "person" : "people"}</span></span></a></li>`)}</ul></nav>
+    </header>
+    ${groups.map((g) => html`<section class="team-group" id="${teamId(g.team)}" aria-labelledby="${teamId(g.team)}-h">
+      <header class="team-group-head"><h2 id="${teamId(g.team)}-h">${g.team}</h2><span class="n" aria-hidden="true">${g.people.length}</span></header>
+      <ul class="roster">${g.people.map((p) => card(p, g.team))}</ul>
+    </section>`)}
+    <aside class="team-join">
+      <div><h2>Join the team</h2><p>We recruit writers, analysts and editors in the fall, winter and spring. No finance background needed.</p></div>
+      <a class="btn btn-accent" href="/apply">See how to apply</a>
+    </aside>
   </div>`);
+  main.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-person]");
+    const p = b && people.find((x) => x.slug === b.dataset.person);
+    if (p) openPerson(p, rc, b);
+  });
+}
+
+/** A profile sheet from the right: the full bio, links, and the person's latest stories. */
+function openPerson(p, rc, opener) {
+  const chat = chatFor(p, rc);
+  const meta = personMeta(p);
+  const li = safeUrl(p.linkedin_url);
+  const x = safeUrl(p.x_url);
+  const dlg = document.createElement("dialog");
+  dlg.className = "person-sheet";
+  dlg.setAttribute("aria-labelledby", "ps-name");
+  dlg.innerHTML = html`<div class="sheet-inner">
+    <button class="icon-btn sheet-close" type="button" data-close aria-label="Close">${icon("close")}</button>
+    ${portrait(p, "portrait portrait-lg")}
+    <p class="sheet-teams">${authorTeams(p).join(", ")}</p>
+    <h2 id="ps-name">${p.name}</h2>
+    ${p.role_title ? html`<p class="sheet-role">${p.role_title}</p>` : ""}
+    ${meta ? html`<p class="sheet-meta">${meta}</p>` : ""}
+    ${p.bio ? html`<p class="sheet-bio">${p.bio}</p>` : ""}
+    ${(chat && (chat.url || chat.email)) || li || x ? html`<div class="sheet-links">
+      ${chat && chat.url ? html`<a class="btn btn-accent btn-sm" href="${chat.url}" target="_blank" rel="noopener" data-track="coffee_chat_click" data-track-host-name="${p.name}" data-track-method="booking">Book a coffee chat</a>`
+        : chat && chat.email ? html`<a class="btn btn-accent btn-sm" href="mailto:${chat.email}?subject=${encodeURIComponent("Coffee chat about joining Fershman")}" data-track="coffee_chat_click" data-track-host-name="${p.name}" data-track-method="email">Email for a coffee chat</a>` : ""}
+      ${li ? html`<a class="btn btn-sm" href="${li}" target="_blank" rel="noopener">${icon("linkedin")} LinkedIn</a>` : ""}
+      ${x ? html`<a class="btn btn-sm" href="${x}" target="_blank" rel="noopener">${icon("x")} X</a>` : ""}
+    </div>` : ""}
+    <section class="sheet-stories" aria-labelledby="ps-stories"><h3 id="ps-stories">Latest stories</h3><div data-stories><p class="sheet-quiet">Loading stories…</p></div></section>
+  </div>`.value;
+  document.body.append(dlg);
+  const close = () => {
+    if (!dlg.open || dlg.classList.contains("is-closing")) return;
+    dlg.classList.add("is-closing");
+    setTimeout(() => dlg.close(), reduceMotion ? 0 : 180);
+  };
+  dlg.addEventListener("click", (e) => { if (e.target === dlg || e.target.closest("[data-close]")) close(); });
+  dlg.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+  dlg.addEventListener("close", () => { dlg.remove(); if (opener && opener.isConnected) opener.focus(); });
+  dlg.showModal();
+  db.listArticles({ authorId: p.id, limit: 3 }).then((rows) => {
+    mount($("[data-stories]", dlg), rows.length
+      ? html`<ul class="sheet-list">${rows.map((a) => html`<li><a href="${articleUrl(a)}">${a.title}</a><span>${fmtDate(a.published_at)}</span></li>`)}</ul><a class="sheet-more" href="${authorUrl(p)}">All stories by ${p.name}</a>`
+      : html`<p class="sheet-quiet">No published stories yet.</p>`);
+  }).catch(() => mount($("[data-stories]", dlg), html`<p class="sheet-quiet"><a href="${authorUrl(p)}">Open ${p.name}'s page</a></p>`));
 }
 
 async function authorPage() {
-  initChrome({ active: null });
+  initChrome({ active: "team" });
   const slug = routeParam("/authors");
   const author = slug ? await db.getAuthor(slug) : null;
-  if (!author) return notFound("Author not found", "We couldn't find that writer. See everyone on the authors page.");
+  if (!author) return notFound("Author not found", "We couldn't find that writer. See everyone on the team page.");
   setMeta({ title: author.name, description: author.bio || `${author.name}${author.role_title ? `, ${author.role_title}` : ""} at The Fershman Journal.` });
   const query = (offset, limit) => db.listArticles({ authorId: author.id, offset, limit });
   const rows = await query(0, PAGE);
@@ -122,6 +217,7 @@ async function authorPage() {
         <div>
           <h1>${author.name}</h1>
           ${author.role_title ? html`<p class="role" style="font-style:normal">${author.role_title}</p>` : ""}
+          ${personMeta(author) ? html`<p class="person-meta-line">${personMeta(author)}</p>` : ""}
           ${author.bio ? html`<p class="bio" style="font-style:normal">${author.bio}</p>` : ""}
           ${author.x_url || author.linkedin_url ? html`<div class="author-links">
             ${author.linkedin_url ? html`<a href="${author.linkedin_url}" target="_blank" rel="noopener">LinkedIn</a>` : ""}

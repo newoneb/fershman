@@ -13,15 +13,15 @@ function storage(kind) {
 }
 const dayLabel = (d) => new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric" });
 
-export async function recruitingPopup(settingsPromise) {
+export async function recruitingPopup(settingsPromise, periodsPromise) {
   if (SKIP.test(location.pathname) || new URLSearchParams(location.search).has("preview")) return;
   let settings, periods;
   try {
-    [settings, periods] = await Promise.all([settingsPromise, db.listRecruitingPeriods()]);
+    [settings, periods] = await Promise.all([settingsPromise, periodsPromise || db.listRecruitingPeriods()]);
   } catch (_) { return; }
   const rc = mergeRecruiting(settings && settings.recruiting);
   if (rc.status === "closed" || rc.popup === false) return;
-  const { active } = activePeriod(periods || []);
+  const { active } = activePeriod(periods || [], new Date(), rc.timezone || "America/Chicago");
   if (!active) return;
   const key = `fj-recruit-${active.id}`;
   const local = storage("local"), session = storage("session");

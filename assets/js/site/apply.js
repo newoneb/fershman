@@ -1,22 +1,31 @@
-// Apply page: rolling status, process, roles, coffee chats, info sessions, application form, FAQ.
+// Apply page: where recruiting stands, how it works, the recruiting calendar, info sessions,
+// coffee chats, roles and questions. Applications themselves are written in the portal
+// (/portal/#apply), where drafts save as people write and applicants follow theirs to a decision.
 import { db, config } from "../data/db.js";
 import { html, raw, mount, icon, isEmail, safeUrl, $, $$ } from "../lib/util.js";
 import { openPanel, toast, downloadFile } from "../lib/ui.js";
-import { mergeRecruiting, applicationStatus, friendlyError, isMarketing } from "../data/shared.js";
-import { initChrome, setMeta } from "./chrome.js";
+import {
+  mergeRecruiting, applicationStatus, friendlyError, isMarketing, countdown, zonedTime,
+  dayShort, weekdayOf, YEARS,
+} from "../data/shared.js";
+import { initChrome, setMeta, chromeData } from "./chrome.js";
 import { track } from "./analytics.js";
 import { avatar, errorState } from "./cards.js";
 
-initChrome({ active: null });
+initChrome({ active: "apply" });
 const main = $("#main");
 const S = config.site;
-const DRAFT_KEY = "fj-apply-draft";
-const YEARS = ["First year", "Second year", "Third year", "Fourth year", "Graduate student", "Other"];
-const HEARD = ["A friend or member", "Info session", "Activities fair", "Instagram", "LinkedIn", "Reading the journal", "Other"];
+const DAY = 864e5;
+const START = "/portal/#apply";
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const honeypot = raw(`<div class="hp" aria-hidden="true"><label>Leave this empty <input name="company_website" tabindex="-1" autocomplete="off"></label></div>`);
 
 // ---------- time & calendar helpers ----------
+const tidy = (s) => s.replace(":00", "").replace(/\s?AM$/, " am").replace(/\s?PM$/, " pm").replace(/\u202f/g, " ");
+const clock = (ms, tz) => tidy(new Date(ms).toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }));
+const cityOf = (tz) => String(tz).split("/").pop().replace(/_/g, " ");
+
 function fmtSession(s, tz) {
   const start = new Date(s.starts_at);
   const end = new Date(start.getTime() + (s.duration_min || 60) * 60000);
@@ -24,6 +33,7 @@ function fmtSession(s, tz) {
   return {
     day: start.toLocaleDateString("en-US", opt({ day: "numeric" })),
     month: start.toLocaleDateString("en-US", opt({ month: "short" })),
+    wd: start.toLocaleDateString("en-US", opt({ weekday: "short" })),
     weekday: start.toLocaleDateString("en-US", opt({ weekday: "long", month: "long", day: "numeric" })),
     time: `${start.toLocaleTimeString("en-US", opt({ hour: "numeric", minute: "2-digit" }))} to ${end.toLocaleTimeString("en-US", opt({ hour: "numeric", minute: "2-digit", timeZoneName: "short" }))}`,
     start, end,
@@ -64,15 +74,16 @@ function embedBooking(url) {
   return "";
 }
 
-// ---------- page ----------
+// ---------- data ----------
 async function load() {
+  const shared = chromeData() || {};
   const [settings, authors, sessions, periods] = await Promise.all([
-    db.getSettings(),
+    shared.settings || db.getSettings(),
     db.listAuthors().catch(() => []),
     db.listInfoSessions().catch((e) => { console.warn("Info sessions unavailable", e); return []; }),
-    db.listRecruitingPeriods().catch(() => []),
+    shared.periods || db.listRecruitingPeriods().catch(() => []),
   ]);
-  return { rc: mergeRecruiting(settings.recruiting), authors, sessions, periods };
+  return { rc: mergeRecruiting(settings.recruiting), authors, sessions, periods: periods || [] };
 }
 
 let HOSTS = [];
@@ -103,7 +114,7 @@ function hostCards(hosts, authors) {
         <h3>${person.name}</h3>
         ${role ? html`<p class="host-role">${role}</p>` : ""}
         ${h.topics ? html`<p class="host-topics">Ask me about ${h.topics}</p>` : ""}
-        <div class="host-actions">${action}</div>
+        ${action ? html`<div class="host-actions">${action}</div>` : ""}
       </div>
     </article>`;
   });
@@ -115,7 +126,7 @@ function sessionRow(s, rc) {
   let mine = null;
   try { mine = JSON.parse(localStorage.getItem(`fj-session-${s.id}`) || "null"); } catch (_) { /* ignore */ }
   return html`<li class="session" data-session="${s.id}">
-    <div class="session-date" aria-hidden="true"><span class="d">${f.day}</span><span class="m">${f.month}</span></div>
+    <div class="session-date" aria-hidden="true"><span class="m">${f.month}</span><span class="d">${f.day}</span><span class="w">${f.wd}</span></div>
     <div class="session-info">
       <h3>${s.title}</h3>
       <p class="session-when">${f.weekday}, ${f.time}</p>
@@ -146,135 +157,220 @@ function confirmationBox(s, rc, already) {
   </div>`;
 }
 
+// ---------- status, index and calendar ----------
+function statusBlock(st) {
+  return html`<div class="rs" data-tone="${st.tone}">
+    <p class="rs-label"><span class="rs-dot" aria-hidden="true"></span>${st.label}</p>
+    ${st.sub ? html`<p class="rs-detail">${st.sub}.</p>` : ""}
+    ${st.until ? html`<p class="rs-clock" data-until="${st.until}"></p>` : ""}
+  </div>`;
+}
+
+function indexBox(items) {
+  return html`<nav class="apply-index" aria-labelledby="apply-index-h">
+    <h2 class="sr-only" id="apply-index-h">On this page</h2>
+    <ul>${items.map((i) => html`<li><a href="#${i.id}"><span class="ai-name">${i.label}</span>${i.note ? html`<span class="ai-note">${i.note}</span>` : ""}</a></li>`)}</ul>
+  </nav>`;
+}
+
+/** The recruiting calendar: the period's dates and the info sessions in it, with today placed between them. */
+function calendar(st, rc, sessions) {
+  const tz = rc.timezone || "America/Chicago";
+  const now = Date.now();
+  const soon = st.upcoming && zonedTime(st.upcoming.starts_on, "00:00:00", tz) - now < 45 * DAY ? st.upcoming : null;
+  const p = st.period || soon;
+  const marks = [];
+  let from, to;
+  if (p) {
+    from = zonedTime(p.starts_on, "00:00:00", tz);
+    to = zonedTime(p.ends_on, "23:59:00", tz);
+    marks.push({ at: from, day: p.starts_on, title: `${p.title} begins` });
+    marks.push({ at: to, day: p.ends_on, title: "Apply by", note: "11:59 pm" });
+    if (p.decisions_on) marks.push({ at: zonedTime(p.decisions_on, "12:00:00", tz), day: p.decisions_on, title: "Decisions by" });
+  } else if (rc.status === "deadline" && rc.deadline && st.open) {
+    from = now - 7 * DAY;
+    to = zonedTime(rc.deadline, "23:59:00", tz);
+    marks.push({ at: to, day: rc.deadline, title: "Applications close", note: "11:59 pm" });
+  } else return null;
+  sessions.filter((s) => { const t = new Date(s.starts_at).getTime(); return t >= from - 21 * DAY && t <= to; }).slice(0, 4)
+    .forEach((s) => marks.push({ at: new Date(s.starts_at).getTime(), title: s.title, href: "#info-sessions" }));
+  if (marks.length < 2) return null;
+  marks.sort((a, b) => a.at - b.at);
+  let progress = 0;
+  if (now >= marks[marks.length - 1].at) progress = 1;
+  else if (now > marks[0].at) {
+    const i = marks.findIndex((m) => m.at > now) - 1;
+    progress = (i + (now - marks[i].at) / (marks[i + 1].at - marks[i].at || 1)) / (marks.length - 1);
+  }
+  const next = marks.findIndex((m) => m.at > now);
+  const items = marks.map((m, i) => {
+    const state = m.at <= now ? "past" : i === next ? "next" : "ahead";
+    const date = m.day ? dayShort(m.day) : new Date(m.at).toLocaleDateString("en-US", { timeZone: tz, month: "short", day: "numeric" });
+    const note = m.day ? [weekdayOf(m.day), m.note].filter(Boolean).join(", ")
+      : `${new Date(m.at).toLocaleDateString("en-US", { timeZone: tz, weekday: "long" })}, ${clock(m.at, tz)}`;
+    const inner = html`<span class="cal-node" aria-hidden="true"></span><span class="cal-date">${date}</span><span class="cal-title">${m.title}</span><span class="cal-note">${note}</span>`;
+    return html`<li class="cal-mark is-${state}">${m.href ? html`<a href="${m.href}">${inner}</a>` : inner}${state === "past" ? html`<span class="sr-only">, passed</span>` : ""}</li>`;
+  });
+  return {
+    range: p ? `${dayShort(p.starts_on)} to ${dayShort(p.ends_on)}` : `Until ${dayShort(rc.deadline)}`,
+    lede: `${p ? `${p.title}. ` : ""}Dates are in ${cityOf(tz)} time.`,
+    markup: html`<div class="cal-wrap" style="--n:${marks.length};--p:${progress.toFixed(4)}">
+      <ol class="cal">${items}</ol>
+      ${progress > 0 && progress < 1 ? raw('<span class="cal-today" aria-hidden="true">Today</span>') : ""}
+    </div>`,
+  };
+}
+
+// ---------- page ----------
 function render({ rc, authors, sessions, periods }) {
   const st = applicationStatus(rc, new Date(), periods);
   HOSTS = allHosts(rc, authors);
   const hosts = hostCards(HOSTS, authors);
+  const cal = calendar(st, rc, sessions);
+  const nextSession = sessions[0] ? fmtSession(sessions[0], rc.timezone) : null;
   setMeta({ title: "Apply", description: rc.lede });
+  const index = [
+    { id: "how", label: "How it works", note: `${rc.steps.length} steps` },
+    cal ? { id: "calendar", label: "Recruiting calendar", note: cal.range } : null,
+    { id: "info-sessions", label: "Info sessions", note: nextSession ? `Next on ${nextSession.month} ${nextSession.day}` : "None scheduled yet" },
+    hosts.length ? { id: "coffee-chats", label: "Coffee chats", note: `${hosts.length} member${hosts.length === 1 ? "" : "s"} to talk to` } : null,
+    rc.roles.length ? { id: "roles", label: "Roles", note: `${rc.roles.length} to choose from` } : null,
+    { id: "apply-form", label: st.open ? "Apply" : "Get notified", note: st.open ? "Saves as you write" : "" },
+    rc.faq.length ? { id: "faq", label: "Questions" } : null,
+  ].filter(Boolean);
+  const lookFor = rc.lookFor.length ? html`<div class="lookfor"><h3>What we look for</h3><ul class="checks">${rc.lookFor.map((t) => html`<li>${icon("check")}<span>${t}</span></li>`)}</ul></div>` : "";
+
   mount(main, html`<div class="container page apply">
     <section class="apply-hero">
       <div>
-        <p class="status-pill status-${st.tone}"><span class="dot" aria-hidden="true"></span>${st.label}${st.sub ? html`<span class="status-sub">${st.sub}</span>` : ""}</p>
+        ${statusBlock(st)}
         <h1>${rc.headline}</h1>
         <p class="lede">${rc.lede}</p>
         <div class="apply-ctas">
-          ${st.open ? html`<a class="btn btn-accent" href="#apply-form">Start your application</a>` : html`<a class="btn btn-accent" href="#apply-form">Get notified when we reopen</a>`}
-          ${hosts.length ? html`<a class="btn" href="#coffee-chats">Book a coffee chat</a>` : ""}
-          ${sessions.length ? html`<a class="btn btn-ghost-link" href="#info-sessions">See info sessions</a>` : ""}
+          ${st.open ? html`<a class="btn btn-accent" href="${START}" data-start data-track="application_start" data-track-from="hero">Start your application</a>`
+            : html`<a class="btn btn-accent" href="#apply-form">Get notified when we reopen</a>`}
+          ${sessions.length ? html`<a class="btn" href="#info-sessions">See info sessions</a>` : hosts.length ? html`<a class="btn" href="#coffee-chats">Book a coffee chat</a>` : ""}
         </div>
+        <p class="apply-signin" data-signin>Started already? <a href="/portal/#application">Sign in to continue</a>.</p>
       </div>
-      ${rc.highlights.length ? html`<dl class="apply-facts">${rc.highlights.map((h) => html`<div><dt>${h.title}</dt><dd>${h.text}</dd></div>`)}</dl>` : ""}
+      ${indexBox(index)}
     </section>
 
-    <nav class="tabs apply-jump" aria-label="On this page">
-      <a class="tab" href="#how">How it works</a>
-      ${rc.roles.length ? html`<a class="tab" href="#roles">Roles</a>` : ""}
-      ${hosts.length ? html`<a class="tab" href="#coffee-chats">Coffee chats</a>` : ""}
-      <a class="tab" href="#info-sessions">Info sessions</a>
-      <a class="tab" href="#apply-form">Application</a>
-      ${rc.faq.length ? html`<a class="tab" href="#faq">FAQ</a>` : ""}
-    </nav>
+    ${rc.highlights.length ? html`<dl class="apply-facts" style="--facts:${Math.min(rc.highlights.length, 4)}">${rc.highlights.map((h) => html`<div><dt>${h.title}</dt><dd>${h.text}</dd></div>`)}</dl>` : ""}
 
     <section class="apply-section" id="how" aria-labelledby="how-h">
-      <header><h2 id="how-h">How it works</h2></header>
-      <ol class="steps">${rc.steps.map((s, i) => html`<li><span class="step-n" aria-hidden="true">${i + 1}</span><h3>${s.title}</h3><p>${s.text}</p></li>`)}</ol>
+      <div class="apply-split">
+        <header><h2 id="how-h">How it works</h2></header>
+        <ol class="steps">${rc.steps.map((s, i) => html`<li><span class="step-n" aria-hidden="true">${i + 1}</span><div><h3>${s.title}</h3><p>${s.text}</p></div></li>`)}</ol>
+      </div>
     </section>
 
-    ${rc.roles.length ? html`
-    <section class="apply-section" id="roles" aria-labelledby="roles-h">
-      <header><h2 id="roles-h">Roles</h2><p>Pick one or several on the application. Most people start as writers and analysts.</p></header>
-      <div class="roles">${rc.roles.map((r) => html`<div class="role"><h3>${r.title}</h3><p>${r.text}</p></div>`)}</div>
-    </section>` : ""}
-
-    ${hosts.length ? html`
-    <section class="apply-section" id="coffee-chats" aria-labelledby="cc-h">
-      <header><h2 id="cc-h">Coffee chats</h2><p>${rc.chatsIntro}</p></header>
-      <div class="hosts">${hosts}</div>
+    ${cal ? html`<section class="apply-section" id="calendar" aria-labelledby="cal-h">
+      <header class="apply-wide-head"><h2 id="cal-h">Recruiting calendar</h2><p>${cal.lede}</p></header>
+      ${cal.markup}
     </section>` : ""}
 
     <section class="apply-section" id="info-sessions" aria-labelledby="is-h">
-      <header><h2 id="is-h">Info sessions</h2><p>${rc.sessionsIntro}</p></header>
-      ${sessions.length ? html`<ul class="sessions">${sessions.map((s) => sessionRow(s, rc))}</ul>` : html`
-        <div class="panel apply-empty">
-          <h3>No sessions on the calendar right now</h3>
-          <p>Leave your email and we'll tell you when the next one is announced.</p>
-          <form class="inline-subscribe" data-notify="info-sessions" novalidate><label class="sr-only" for="n-sess">Email</label><input class="input" id="n-sess" name="email" type="email" placeholder="you@uchicago.edu" autocomplete="email"><button class="btn btn-accent" type="submit">Notify me</button></form>
-          <p class="form-error" role="alert"></p>
-        </div>`}
+      <div class="apply-split">
+        <header><h2 id="is-h">Info sessions</h2><p>${rc.sessionsIntro}</p></header>
+        <div>${sessions.length ? html`<ul class="sessions">${sessions.map((s) => sessionRow(s, rc))}</ul>` : html`
+          <div class="apply-card apply-empty">
+            <h3>No sessions on the calendar right now</h3>
+            <p>Leave your email and we'll tell you when the next one is announced.</p>
+            <form class="inline-subscribe" data-notify="info-sessions" novalidate><label class="sr-only" for="n-sess">Email</label><input class="input" id="n-sess" name="email" type="email" placeholder="you@uchicago.edu" autocomplete="email"><button class="btn btn-accent" type="submit">Notify me</button></form>
+            <p class="form-error" role="alert"></p>
+          </div>`}</div>
+      </div>
     </section>
+
+    ${hosts.length ? html`<section class="apply-section" id="coffee-chats" aria-labelledby="cc-h">
+      <div class="apply-split">
+        <header><h2 id="cc-h">Coffee chats</h2><p>${rc.chatsIntro}</p></header>
+        <div class="hosts">${hosts}</div>
+      </div>
+    </section>` : ""}
+
+    ${rc.roles.length ? html`<section class="apply-section" id="roles" aria-labelledby="roles-h">
+      <div class="apply-split">
+        <header><h2 id="roles-h">Roles</h2><p>Pick one or several on the application. Most people start as writers and analysts.</p></header>
+        <div class="roles">${rc.roles.map((r) => html`<div class="role"><h3>${r.title}</h3><p>${r.text}</p></div>`)}</div>
+      </div>
+    </section>` : ""}
 
     <section class="apply-section" id="apply-form" aria-labelledby="af-h">
-      <div class="apply-form-wrap">
-        <div>
-          <header><h2 id="af-h">${st.open ? "Apply" : "Applications are closed"}</h2>
-            <p>${st.open ? "It takes about ten minutes. Your answers save in this browser as you type, so you can finish later." : "We aren't taking applications right now. Leave your email and we'll tell you the day they reopen."}</p></header>
-          ${rc.lookFor.length ? html`<h3 class="mini-h">What we look for</h3><ul class="checks">${rc.lookFor.map((t) => html`<li>${icon("check")}<span>${t}</span></li>`)}</ul>` : ""}
-        </div>
-        ${st.open ? applicationForm(rc) : html`
-          <div class="form-card">
-            <h2>Get notified</h2>
-            <form class="form" data-notify="apply-waitlist" novalidate>
-              <div class="field"><label for="n-app">Email</label><input class="input" id="n-app" name="email" type="email" autocomplete="email"></div>
-              <p class="form-error" role="alert"></p>
-              <div><button class="btn btn-accent" type="submit">Notify me</button></div>
-            </form>
+      <div class="apply-split">
+        <header><h2 id="af-h">${st.open ? "Apply" : "Applications are closed"}</h2>
+          <p>${st.open ? "Applications are written in the Fershman portal, so nothing you write is lost." : "We aren't taking applications right now."}</p></header>
+        <div class="apply-start">
+          ${st.open ? html`<div class="apply-card">
+            <h3>Start your application</h3>
+            <p>Create an account, then answer two short questions: why Fershman, and a story you'd pitch. Add a writing sample if you have one. Your draft saves as you write, and the portal shows where your application stands until you hear back.</p>
+            <div class="apply-ctas">
+              <a class="btn btn-accent" href="${START}" data-start data-track="application_start" data-track-from="apply_section">Start your application</a>
+              <a class="btn btn-ghost-link" href="/portal/#application" data-signin>Sign in to continue</a>
+            </div>
+          </div>` : html`<div class="apply-card">
+            <h3>Get notified</h3>
+            <p>Leave your email and we'll tell you the day applications reopen. You can also <a href="${START}">start a draft in the portal</a> and submit it then.</p>
+            <form class="inline-subscribe" data-notify="apply-waitlist" novalidate><label class="sr-only" for="n-app">Email</label><input class="input" id="n-app" name="email" type="email" autocomplete="email" placeholder="you@uchicago.edu"><button class="btn btn-accent" type="submit">Notify me</button></form>
+            <p class="form-error" role="alert"></p>
           </div>`}
+          ${lookFor}
+        </div>
       </div>
     </section>
 
-    ${rc.faq.length ? html`
-    <section class="apply-section" id="faq" aria-labelledby="faq-h">
-      <header><h2 id="faq-h">Questions</h2></header>
-      <div class="faq">${rc.faq.map((f) => html`<details><summary>${f.q}</summary><p>${f.a}</p></details>`)}</div>
-      ${S.applyContacts && S.applyContacts.length ? html`<p class="apply-contact">Still have a question? Email ${S.applyContacts.map((e, i) => html`${i ? " or " : ""}<a href="mailto:${e}">${e}</a>`)}.</p>` : ""}
+    ${rc.faq.length ? html`<section class="apply-section" id="faq" aria-labelledby="faq-h">
+      <div class="apply-split">
+        <header><h2 id="faq-h">Questions</h2></header>
+        <div>
+          <div class="faq">${rc.faq.map((f) => html`<details><summary>${f.q}</summary><p>${f.a}</p></details>`)}</div>
+          ${S.applyContacts && S.applyContacts.length ? html`<p class="apply-contact">Still have a question? Email ${S.applyContacts.map((e, i) => html`${i ? " or " : ""}<a href="mailto:${e}">${e}</a>`)}.</p>` : ""}
+        </div>
+      </div>
     </section>` : ""}
   </div>`);
-  wire(rc, sessions);
+  wire(rc);
+  personalize();
 }
 
-function applicationForm(rc) {
-  return html`<div class="form-card">
-    <form class="form" id="application" novalidate>
-      <div class="field-row">
-        <div class="field"><label for="a-name">Full name</label><input class="input" id="a-name" name="name" required data-label="Full name" autocomplete="name"></div>
-        <div class="field"><label for="a-email">Email</label><input class="input" id="a-email" name="email" type="email" required data-label="Email" autocomplete="email" placeholder="you@uchicago.edu"></div>
-      </div>
-      <div class="field-row">
-        <div class="field"><label for="a-year">Year</label><select class="select" id="a-year" name="year" required data-label="Year"><option value="">Choose…</option>${YEARS.map((y) => html`<option>${y}</option>`)}</select></div>
-        <div class="field"><label for="a-major">Major(s)</label><input class="input" id="a-major" name="major" placeholder="Economics, Statistics"></div>
-      </div>
-      <fieldset class="field">
-        <legend class="label">Roles you're interested in</legend>
-        <div class="chips">${rc.roles.map((r) => html`<label class="chip"><input type="checkbox" name="roles" value="${r.title}"><span>${r.title}</span></label>`)}</div>
-      </fieldset>
-      <div class="field">
-        <label for="a-why">Why Fershman?</label>
-        <span class="hint">What draws you to markets, deals or policy, and what would you bring? Around 100 to 250 words.</span>
-        <textarea class="textarea" id="a-why" name="why" rows="7" required data-label="Why Fershman?"></textarea>
-        <span class="wordcount" data-wc="a-why">0 words</span>
-      </div>
-      <div class="field">
-        <label for="a-pitch">Pitch the first story you'd write</label>
-        <span class="hint">Two or three sentences: the argument, and why it matters now.</span>
-        <textarea class="textarea" id="a-pitch" name="pitch" rows="4" required data-label="Pitch" style="min-height:110px"></textarea>
-      </div>
-      <div class="field-row">
-        <div class="field"><label for="a-sample">Writing sample <span class="hint">(optional link)</span></label><input class="input" id="a-sample" name="sample" type="url" placeholder="https://"></div>
-        <div class="field"><label for="a-resume">Résumé or LinkedIn <span class="hint">(optional link)</span></label><input class="input" id="a-resume" name="resume" type="url" placeholder="https://"></div>
-      </div>
-      <div class="field-row">
-        <div class="field"><label for="a-heard">How did you hear about us?</label><select class="select" id="a-heard" name="heard"><option value="">Choose…</option>${HEARD.map((h) => html`<option>${h}</option>`)}</select></div>
-        <div class="field"><label for="a-met">Have you met us yet?</label><select class="select" id="a-met" name="met"><option value="">Choose…</option><option>Coffee chat</option><option>Info session</option><option>Both</option><option>Not yet</option></select></div>
-      </div>
-      ${honeypot}
-      <p class="form-error" role="alert"></p>
-      <div class="form-foot"><button class="btn btn-accent" type="submit">Submit application</button><span class="draft-state" aria-live="polite"></span></div>
-    </form>
-  </div>`;
+/** Signed-in applicants see "Continue your application" instead of "Start". */
+async function personalize() {
+  try {
+    const s = await db.getSession();
+    if (!s) return;
+    $$("[data-signin]", main).forEach((el) => el.remove());
+    const a = await db.myApplication();
+    if (!a) return;
+    const label = a.status === "draft" ? "Continue your application" : "View your application";
+    $$("[data-start]", main).forEach((el) => { el.textContent = label; el.href = "/portal/#application"; });
+  } catch (_) { /* the page works the same for everyone */ }
 }
 
-function wire(rc, sessions) {
-  const words = (t) => (String(t).trim().match(/\S+/g) || []).length;
+function wire(rc) {
+  // Countdown to the closing date
+  const clockEl = $(".rs-clock", main);
+  if (clockEl) {
+    const until = Number(clockEl.dataset.until);
+    const tick = () => {
+      const left = until - Date.now();
+      clockEl.textContent = left > 0 ? `${countdown(left)} left` : "";
+      return left > 0;
+    };
+    if (tick()) { const t = setInterval(() => { if (!tick()) clearInterval(t); }, 30000); }
+  }
+
+  // The calendar's progress line draws in once, when it scrolls into view.
+  const cal = $(".cal", main);
+  if (cal && !reduceMotion && "IntersectionObserver" in window) {
+    cal.classList.add("is-waiting");
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      requestAnimationFrame(() => cal.classList.remove("is-waiting"));
+      io.disconnect();
+    }, { threshold: 0.5 });
+    io.observe(cal);
+  }
 
   // Coffee-chat booking
   main.addEventListener("click", (e) => {
@@ -309,9 +405,6 @@ function wire(rc, sessions) {
         <p class="form-error" role="alert"></p>
         <div class="row-actions"><button class="btn btn-accent btn-sm" type="submit">Confirm registration</button><button class="btn btn-sm" type="button" data-cancel-reg>Cancel</button></div>
       </form>`);
-      const draft = readDraft();
-      if (draft.name) $("#r-name", row).value = draft.name;
-      if (draft.email) $("#r-email", row).value = draft.email;
       $("#r-name", row).focus();
     }
     if (e.target.closest("[data-cancel-reg]")) e.target.closest(".session-slot").innerHTML = "";
@@ -364,7 +457,7 @@ function wire(rc, sessions) {
     if (!form) return;
     e.preventDefault();
     const email = form.email.value.trim();
-    const err = form.querySelector(".form-error") || form.parentElement.querySelector(".form-error");
+    const err = form.parentElement.querySelector(".form-error");
     if (!isEmail(email)) { if (err) err.textContent = "Enter a valid email address."; return; }
     try {
       await db.subscribe({ email, source: form.dataset.notify });
@@ -372,73 +465,6 @@ function wire(rc, sessions) {
       form.outerHTML = html`<div class="form-success" role="status"><strong>You're on the list</strong>We'll email you.</div>`.value;
     } catch (ex) { if (err) err.textContent = friendlyError(ex); }
   });
-
-  // Application form: draft autosave, word count, submit
-  const form = $("#application");
-  if (!form) return;
-  const state = $(".draft-state", form);
-  const draft = readDraft();
-  for (const [k, val] of Object.entries(draft)) {
-    if (k === "roles") $$('input[name="roles"]', form).forEach((c) => (c.checked = val.includes(c.value)));
-    else if (form.elements[k] && form.elements[k].type !== "checkbox") form.elements[k].value = val;
-  }
-  const wc = () => { const n = words(form.why.value); $('[data-wc="a-why"]', form).textContent = `${n} word${n === 1 ? "" : "s"}`; };
-  wc();
-  if (Object.keys(draft).length) state.textContent = "Draft restored from this browser";
-  let t;
-  form.addEventListener("input", () => {
-    wc();
-    clearTimeout(t);
-    t = setTimeout(() => {
-      try { localStorage.setItem(DRAFT_KEY, JSON.stringify(collect(form))); state.textContent = "Draft saved"; } catch (_) { /* ignore */ }
-    }, 600);
-  });
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const err = $(".form-error", form);
-    err.textContent = "";
-    const v = collect(form);
-    if (new FormData(form).get("company_website")) return;
-    for (const el of form.querySelectorAll("[required]")) {
-      if (!String(el.value).trim()) { err.textContent = `Fill in “${el.dataset.label}” to continue.`; el.focus(); return; }
-    }
-    if (!isEmail(v.email)) { err.textContent = "Enter a valid email address."; form.email.focus(); return; }
-    if (!v.roles.length) { err.textContent = "Choose at least one role."; return; }
-    const btn = $('button[type="submit"]', form);
-    btn.disabled = true;
-    btn.textContent = "Submitting…";
-    try {
-      await db.sendMessage({
-        kind: "application", name: v.name, email: v.email,
-        subject: `${v.roles.join(", ")} (${v.year})`,
-        body: v.why,
-        data: { year: v.year, major: v.major, roles: v.roles.join(", "), pitch: v.pitch, sample: v.sample, resume: v.resume, heard: v.heard, met: v.met },
-      });
-      localStorage.removeItem(DRAFT_KEY);
-      track("application_submit", { roles: v.roles.join(", "), year: v.year, heard: v.heard });
-      form.closest(".form-card").outerHTML = html`<div class="form-success apply-done" role="status">
-        <strong>Application received</strong>
-        <p>Thanks, ${v.name.split(" ")[0]}. ${rc.confirmation}</p>
-        <div class="row-actions">${sessions.length ? html`<a class="btn btn-sm" href="#info-sessions">Register for an info session</a>` : ""}<a class="btn btn-sm" href="/">Read the latest</a></div>
-      </div>`.value;
-      $("#apply-form").scrollIntoView({ behavior: "smooth", block: "start" });
-    } catch (ex) {
-      err.textContent = friendlyError(ex);
-      btn.disabled = false;
-      btn.textContent = "Submit application";
-    }
-  });
-}
-
-function collect(form) {
-  const fd = new FormData(form);
-  const o = {};
-  for (const k of ["name", "email", "year", "major", "why", "pitch", "sample", "resume", "heard", "met"]) o[k] = String(fd.get(k) || "").trim();
-  o.roles = fd.getAll("roles");
-  return o;
-}
-function readDraft() {
-  try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}") || {}; } catch (_) { return {}; }
 }
 
 try {

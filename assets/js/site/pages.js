@@ -9,7 +9,7 @@ import { avatar, authorUrl, sectionName, errorState } from "./cards.js";
 const page = document.body.dataset.page;
 const main = $("#main");
 const S = config.site;
-initChrome({ active: null });
+initChrome({ active: { about: "about", submit: "submit", contact: "contact" }[page] || null });
 
 const honeypot = raw(`<div class="hp" aria-hidden="true"><label>Leave this empty <input name="company_website" tabindex="-1" autocomplete="off"></label></div>`);
 
@@ -88,7 +88,7 @@ async function about() {
     <section class="team" aria-labelledby="masthead-h">
       <h2 id="masthead-h">Masthead</h2>
       <ul class="people">${leaders.map((p) => html`<li><a class="person" href="${authorUrl(p)}">${avatar(p, "avatar-md")}<div><div class="person-name">${p.name}</div><div class="person-role">${p.role_title || ""}</div></div></a></li>`)}</ul>
-      <p style="margin-top:16px"><a class="btn" href="/authors">See all authors</a></p>
+      <p style="margin-top:16px"><a class="btn" href="/team">Meet the whole team</a></p>
     </section>` : ""}
   </div>`);
 }

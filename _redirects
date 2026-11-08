@@ -5,6 +5,7 @@
 /categories                                  /categories.html              200
 /categories/*                                /category.html                200
 /authors                                     /authors.html                 200
+/team                                        /authors.html                 200
 /authors/shaurya-vohtra                      /authors/shaurya-vohra        301
 /authors/*                                   /author.html                  200
 /learn                                       /learn.html                   200

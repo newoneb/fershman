@@ -146,7 +146,7 @@ export async function authors(ctx) {
       </tr>`)}</tbody>
     </table>` : html`<div class="table-empty"><strong>No authors yet</strong>Add your writers so their names appear on stories.</div>`);
   const edit = (author) => {
-    const a = author || { name: "", slug: "", role_title: "", team: "Analysts", teams: ["Analysts"], bio: "", avatar_url: "", linkedin_url: "", x_url: "", booking_url: "", contact_email: "", sort_order: 100 };
+    const a = author || { name: "", slug: "", role_title: "", team: "Analysts", teams: ["Analysts"], bio: "", avatar_url: "", linkedin_url: "", x_url: "", booking_url: "", contact_email: "", class_year: "", major: "", sort_order: 100 };
     const mine = authorTeams(a);
     const allTeams = teamList(config.authorTeams, list);
     let slugTouched = Boolean(author);
@@ -156,6 +156,7 @@ export async function authors(ctx) {
         <div class="field"><label for="au-n">Name</label><input class="input" id="au-n" value="${a.name}" required></div>
         <div class="field"><label for="au-s">Page address</label><input class="input" id="au-s" value="${a.slug}"><span class="hint slug-preview">/authors/<span data-slug>${a.slug}</span></span></div>
         <div class="field"><label for="au-r">Role or title</label><input class="input" id="au-r" value="${a.role_title || ""}" placeholder="Analyst, The Fershman Journal"></div>
+        <div class="field-row"><div class="field"><label for="au-cy">Class year <span class="hint">(optional)</span></label><input class="input" id="au-cy" value="${a.class_year || ""}" placeholder="2027"></div><div class="field"><label for="au-mj">Major <span class="hint">(optional)</span></label><input class="input" id="au-mj" value="${a.major || ""}" placeholder="Economics"></div></div>
         <fieldset class="field" style="border:0;padding:0;margin:0"><legend class="label" style="margin-bottom:8px">Teams <span class="hint">(pick every position they hold)</span></legend>
           <div class="chips">${allTeams.map((t) => html`<label class="chip"><input type="checkbox" data-team value="${t}" ${mine.includes(t) ? raw("checked") : ""}><span>${t}</span></label>`)}</div>
           <span class="hint">Marketing can schedule info sessions and recruiting periods, and is listed on the Apply page for coffee chats.</span></fieldset>
@@ -194,6 +195,7 @@ export async function authors(ctx) {
         const data = {
           id: author && author.id, name: nameI.value.trim(), slug: slugify(slugI.value) || slugify(nameI.value),
           role_title: $("#au-r", r).value.trim() || null,
+          class_year: $("#au-cy", r).value.trim() || null, major: $("#au-mj", r).value.trim() || null,
           teams: (() => { // keep existing positions first, then newly added ones
             const checked = $$("[data-team]:checked", r).map((c) => c.value);
             const extra = $("#au-t", r).value.trim();
@@ -355,7 +357,7 @@ export async function members(ctx) {
     ${head("Members", "Everyone with an account. Roles decide what they can see and do.", html`<button class="btn" type="button" data-copy>${icon("link")} Copy invite link</button>`)}
     <div class="card card-pad" style="margin-bottom:16px">
       <h2>How access works</h2>
-      <p>New people sign up at <a href="/portal/">${portalUrl}</a> and appear here as <strong>Pending approval</strong>. Choose a role to let them in.</p>
+      <p>New accounts from <a href="/portal/">${portalUrl}</a> appear here as <strong>Pending approval</strong>. Applicants get access automatically when an editor accepts their application in <a href="#/recruiting">Recruiting</a>. For current members who created an account, choose a role to let them in.</p>
       <dl class="kv" style="grid-template-columns:110px minmax(0,1fr)">
         <dt>Member</dt><dd>Sees the members portal: decks, models, recordings.</dd>
         <dt>Writer</dt><dd>Also writes drafts and submits them for review.</dd>
@@ -611,6 +613,7 @@ export async function byline(ctx) {
       <section class="card card-pad stack">
         <div class="field"><label for="my-n">Name</label><input class="input" id="my-n" value="${a.name}"></div>
         <div class="field"><label for="my-r">Title</label><input class="input" id="my-r" value="${a.role_title || ""}"></div>
+        <div class="field-row"><div class="field"><label for="my-cy">Class year</label><input class="input" id="my-cy" value="${a.class_year || ""}" placeholder="2027"></div><div class="field"><label for="my-mj">Major</label><input class="input" id="my-mj" value="${a.major || ""}" placeholder="Economics"></div></div>
         <div class="field"><label for="my-b">Short bio</label><textarea class="textarea" id="my-b" rows="5">${a.bio || ""}</textarea></div>
         <div class="field"><span class="label">Photo</span>
           <div class="row"><span class="avatar avatar-md" data-av>${safeUrl(a.avatar_url) ? html`<img src="${safeUrl(a.avatar_url)}" alt="">` : initials(a.name)}</span>
@@ -640,7 +643,7 @@ export async function byline(ctx) {
   });
   $("[data-save]", ctx.el).addEventListener("click", async () => {
     const v = (x) => $(x, ctx.el).value.trim();
-    const patch = { name: v("#my-n") || a.name, role_title: v("#my-r") || null, bio: v("#my-b") || null, avatar_url: v("#my-a") || null,
+    const patch = { name: v("#my-n") || a.name, role_title: v("#my-r") || null, class_year: v("#my-cy") || null, major: v("#my-mj") || null, bio: v("#my-b") || null, avatar_url: v("#my-a") || null,
       linkedin_url: v("#my-li") || null, x_url: v("#my-x") || null, booking_url: v("#my-bk") || null, contact_email: v("#my-ce") || null };
     if (patch.booking_url && !/^https:\/\//i.test(patch.booking_url)) { $(".form-error", ctx.el).textContent = "The booking link should start with https://"; return; }
     try { await db.updateMyByline(patch); toast("Byline saved"); }

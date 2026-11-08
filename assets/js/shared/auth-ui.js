@@ -5,31 +5,32 @@ import { friendlyError, isEmailDeliveryError } from "../data/shared.js";
 
 const COPY = {
   admin: { kicker: "Admin", quote: "The newsroom: write, edit and publish the journal.", sub: "For writers and editors of The Fershman Journal." },
-  portal: { kicker: "Members", quote: "Decks, models and recordings from inside the journal.", sub: "For members of The Fershman Journal." },
+  portal: { kicker: "Portal", quote: "Apply to the journal, follow your application, and open the members library.", sub: "For applicants and members of The Fershman Journal." },
 };
 
 /**
  * Render the auth screen into `root`.
  * options: { context: "admin"|"portal", mode: "signin"|"signup"|"forgot"|"reset", onDone(session) }
  */
-export function renderAuth(root, { context = "portal", mode = "signin", onDone } = {}) {
+export function renderAuth(root, { context = "portal", mode = "", intent = "", onDone } = {}) {
   const c = COPY[context];
   const allowSignup = context === "portal";
-  let state = mode;
+  const applying = intent === "apply" && context === "portal";
+  let state = mode || (applying ? "signup" : "signin");
   let flash = "";
 
-  const demoNote = LIVE ? "" : html`<div class="notice notice-warn" style="margin-top:18px">Demo mode: any email and password signs you in as an admin. Use <strong>member@example.com</strong> to see the member view.</div>`;
+  const demoNote = LIVE ? "" : html`<div class="notice notice-warn" style="margin-top:18px">Demo mode: any email and password signs you in as an admin. Use <strong>member@example.com</strong> to see the member view, or create an account to see the applicant view.</div>`;
 
   function view() {
     const tabs = allowSignup && (state === "signin" || state === "signup") ? html`
       <div class="seg" role="tablist" aria-label="Account">
         <button type="button" data-mode="signin" aria-pressed="${state === "signin" ? "true" : "false"}">Sign in</button>
-        <button type="button" data-mode="signup" aria-pressed="${state === "signup" ? "true" : "false"}">Request access</button>
+        <button type="button" data-mode="signup" aria-pressed="${state === "signup" ? "true" : "false"}">Create an account</button>
       </div>` : "";
     let box;
     if (state === "signin") {
       box = html`
-        <h1>${context === "admin" ? "Sign in to the admin" : "Members portal"}</h1>
+        <h1>${context === "admin" ? "Sign in to the admin" : applying ? "Continue your application" : "Sign in to the portal"}</h1>
         <p>${c.sub}</p>${tabs}${demoNote}
         ${flash ? html`<div class="notice" style="margin-top:18px">${flash}</div>` : ""}
         <form class="form" novalidate data-form="signin">
@@ -40,17 +41,17 @@ export function renderAuth(root, { context = "portal", mode = "signin", onDone }
         </form>
         <div class="auth-links"><button type="button" data-mode="forgot">Forgot your password?</button>
           ${context === "admin" ? html`<a href="/portal/">Members portal</a>` : html`<a href="/">Back to the journal</a>`}</div>
-        ${allowSignup ? html`<p class="form-note" style="margin-top:22px">Had an account on the old fershman.com? Old accounts didn't move to the new site. Choose <button type="button" class="link-inline" data-mode="signup">Request access</button> to create one with the same email.</p>` : ""}`;
+        ${allowSignup ? html`<p class="form-note" style="margin-top:22px">Had an account on the old fershman.com? Old accounts didn't move to the new site. Choose <button type="button" class="link-inline" data-mode="signup">Create an account</button> with the same email.</p>` : ""}`;
     } else if (state === "signup") {
       box = html`
-        <h1>Request access</h1>
-        <p>Create an account. An admin approves new members before they can see the library.</p>${tabs}${demoNote}
+        <h1>${applying ? "Start your application" : "Create an account"}</h1>
+        <p>${applying ? "Create an account first. Your application saves as you write, and you can follow it here until you hear back." : "Create an account to apply to the journal. If you're already a member, an admin approves your account and you can open the library."}</p>${tabs}${demoNote}
         <form class="form" novalidate data-form="signup">
           <div class="field"><label for="au-name">Full name</label><input class="input" id="au-name" name="name" autocomplete="name" required></div>
           <div class="field"><label for="au-email">Email</label><input class="input" id="au-email" name="email" type="email" autocomplete="email" required></div>
           <div class="field"><label for="au-pass">Password</label><input class="input" id="au-pass" name="password" type="password" autocomplete="new-password" minlength="8" required><span class="hint">At least 8 characters.</span></div>
           <p class="form-error" role="alert"></p>
-          <button class="btn btn-accent" type="submit">Request access</button>
+          <button class="btn btn-accent" type="submit">Create account</button>
         </form>
         <div class="auth-links"><a href="/">Back to the journal</a></div>`;
     } else if (state === "forgot") {
@@ -127,7 +128,7 @@ export function renderAuth(root, { context = "portal", mode = "signin", onDone }
         const r = await db.signUp(v.email, v.password, v.name.trim());
         if (r.needsConfirmation) {
           state = "check-email";
-          flash = `We sent a confirmation link to ${v.email}. Open it, then come back and sign in. An admin will approve your access. If nothing arrives in a few minutes, check your spam folder or email ${config.site.contactEmail || "the journal"}.`;
+          flash = `We sent a confirmation link to ${v.email}. Open it, then come back and sign in${applying ? " to start your application" : ""}. If nothing arrives in a few minutes, check your spam folder or email ${config.site.contactEmail || "the journal"}.`;
           draw();
         } else {
           onDone && onDone(await db.getSession());
@@ -177,7 +178,7 @@ export function renderAuth(root, { context = "portal", mode = "signin", onDone }
         err.append(" Contact ", a, ".");
       } else if (kind === "signin" && !allowSignup && /incorrect/.test(message)) {
         // The portal already says this under its form; the admin sign-in has no Request access tab.
-        err.append(" Accounts from the old fershman.com didn't carry over. Request access in the members portal first.");
+        err.append(" Accounts from the old fershman.com didn't carry over. Create an account in the portal first.");
       }
       btn.disabled = false;
       btn.textContent = label;

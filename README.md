@@ -8,7 +8,7 @@ Netlify and it runs.
 ```
 /            the journal (front page, sections, articles, authors, Learn Economics, search)
 /admin/      admin panel — write, edit, schedule, publish; manage authors, members, inbox
-/portal/     members portal — the library of decks, models and recordings
+/portal/     the portal — applications, and the members library of decks, models and recordings
 ```
 
 ## How it works
@@ -68,7 +68,7 @@ Netlify can rename the address under **Site configuration → Change site name**
 6. **Redeploy.** In Netlify open your site → **Deploys**, and drag the folder onto the
    drop area again.
 7. **Create your admin account.** Open `/portal/` on the live site, choose
-   **Request access**, and sign up. Confirm the email Supabase sends you, then sign in.
+   **Create an account**, and sign up. Confirm the email Supabase sends you, then sign in.
    **The first account ever created becomes the admin** — do this right after step 2.
 8. Open `/admin/`. You're in.
 9. **Let members sign up.** Supabase's built-in email only reaches people on your Supabase
@@ -125,7 +125,7 @@ launch note and two Learn Economics lessons as drafts.
 
 | Role | Can |
 |---|---|
-| Pending approval | Nothing private yet — waiting for an admin |
+| Pending approval | An account with no access yet: applicants, and members waiting for an admin |
 | Member | Open the members portal |
 | Writer | + write drafts and submit them for review |
 | Editor | + edit, schedule and publish; manage authors, portal files and the inbox |
@@ -133,9 +133,15 @@ launch note and two Learn Economics lessons as drafts.
 
 ### Teams and the Marketing team
 
-Teams are the groups on the public Authors page (Leadership, Editors, Marketing, Analysts,
-Staff Writers). One person can hold several positions: in **Admin → Authors**, tick every team
-they're on, for example *Editors* and *Marketing*. They appear under each team.
+Teams are the groups on the public Team page (`/team`; `/authors` still works): Leadership,
+Editors, Marketing, Analysts, Staff Writers. One person can hold several positions: in
+**Admin → Authors**, tick every team they're on, for example *Editors* and *Marketing*. Each
+person appears once, under the first of their teams, with the others shown as tags. Add a
+**class year**, **major** and bio in **Admin → Authors** (or **My byline**) and they show on the
+card and in the profile that opens when a reader selects it, with the person's latest stories.
+Photos print in black and white, in the spirit of the Journal's hedcut portraits; people without a
+photo get their initials. A byline whose title starts with "House", like *Fershman Editors*,
+signs stories but stays off the Team page.
 
 Anyone whose byline is on **Marketing** (and whose account is linked to that byline in
 Members) can run recruiting even as a writer: schedule info sessions, set active recruiting
@@ -143,7 +149,8 @@ periods and review applications. Everyone on Marketing is listed on the Apply pa
 chats automatically. Each person adds their own booking link under **Admin → My byline**.
 
 New people sign up at `/portal/` and appear in **Admin → Members** as *Pending approval*.
-Choose a role to let them in. Link a writer's account to their author byline in the same
+Applicants get access automatically when their application is accepted; for current members
+who create an account, choose a role to let them in. Link a writer's account to their author byline in the same
 table so new articles are attributed to them automatically.
 
 ### Writing and publishing
@@ -235,36 +242,70 @@ Google Slides or Drive link instead.
 - **Settings:** the green announcement bar, and the text of the About, Submit and
   Privacy pages.
 
-### Recruiting and the Apply page
+### Recruiting and applications
 
-**Admin → Recruiting** runs everything on `/apply`. Editors, admins and the Marketing team
-can use it:
+**Admin → Recruiting** runs everything on `/apply`. Editors, admins and the Marketing team can
+use it.
 
-- **Applications:** every application with its answers, story pitch and links. Move people
-  through stages (New → Reviewing → Interview → Accepted / Declined) and export a CSV.
+**How someone applies.** The Apply page shows where recruiting stands (with a countdown while
+there's a closing date), how it works, a recruiting calendar, info sessions, coffee chats, roles
+and questions. **Start your application** opens the portal: the applicant creates an account and
+writes the application there.
+
+- The draft saves to the database as they type, so they can finish it later or on another device.
+- They answer two questions (*Why Fershman?*, up to 250 words, and a story pitch, up to 120),
+  pick roles, give their year and major, and can add a writing-sample link, a LinkedIn or résumé
+  link and one PDF or Word file of up to 10 MB, stored privately. The questions are
+  `APP_QUESTIONS` in `assets/js/data/shared.js`.
+- After they submit, the portal shows a four-step tracker (Application, Review, Interview,
+  Decision) and any note you leave them. Someone who was declined can start a new application.
+- Current members who create an account see a note that they don't need to apply. Give them
+  their role in **Admin → Members** as before.
+
+**Reviewing.** **Applications** lists every application, filtered by status and recruiting
+period, with search and **Export CSV**. Open one to read it and open the uploaded file, then:
+
+- **Add a review:** a score from 1 to 5, a recommendation (advance, hold or decline) and notes.
+  Only recruiters see reviews, never the applicant.
+- **Move it** to *Reviewing* or *Interview*, and write a **note to the applicant**, for example an
+  interview time and place. It appears on their application page.
+- **Return it to the applicant for edits:** it becomes a draft they can change and send again,
+  even after a deadline.
+- **Accept** or **Decline.** Editors and admins make the final decision; the Marketing team can
+  review but not decide. Accepting asks which access to give, **Writer** or **Member**, and grants
+  it straight away, with no separate step in Members.
+
+The database enforces all of this, not just the pages: applicants can change only their own
+draft and submit only while applications are open, only recruiters can read applications and
+reviews, and only editors and admins can accept or decline. Applications sent with the old
+single-page form stay in the **Inbox**.
+
 - **Info sessions:** add a date, place, optional capacity and an optional meeting link. People
   register on the Apply page, get Google Calendar and .ics buttons, and see the meeting link
   only after registering. Open a session to see who's coming, copy their emails or export them.
 - **Recruiting periods:** mark the weeks you're actively recruiting (posters up, sessions
-  running). During a period the Apply page leads with it, e.g. "Fall recruitment is on.
-  Apply by October 16". Outside periods, applications stay open on a rolling basis.
+  running). During a period the Apply page leads with it ("Fall recruitment is on. Apply by
+  October 16") and a countdown, the Apply link in the header gets a small green dot, and
+  applications submitted then are filed under the period. Add a **Decisions by** date and it
+  appears on the recruiting calendar and in applicants' status. Outside periods, applications
+  stay open on a rolling basis. The period's note stays internal.
 - **Coffee chats:** the Marketing team is listed automatically. You can also add extra hosts
-  and paste each one's booking page
-  (Calendly, Cal.com or a Google Calendar appointment schedule — all have free plans).
-  Those tools send confirmations and reminders and handle rescheduling. Hosts without a link
-  get an "Email to schedule" button.
+  and paste each one's booking page (Calendly, Cal.com or a Google Calendar appointment
+  schedule — all have free plans). Hosts without a link get an "Email to schedule" button.
+  Hosts are also marked on the Team page.
 - **Apply page:** open with rolling review, open until a deadline, or closed (visitors can ask
-  to be notified). Edit the headline, highlights, steps, roles, what you look for and the FAQ.
-- **Recruiting pop-up:** while a recruiting period is on, a small card slides in at the
-  bottom corner of every page (a few seconds after it loads, or once the reader scrolls):
-  "Fall recruitment is on", your pop-up message, the deadline and the next info session, with
-  buttons to the Apply page. It never covers the page, shows once per visit, and stays away for
-  the rest of the period once someone closes it. It doesn't appear on the Apply page itself.
-  Change the message or turn it off under **Apply page → Application status**. The period's
-  own note stays internal.
+  to be notified, and applicants can still write a draft to submit when you reopen). Edit the
+  headline, highlights, steps, roles, what you look for and the FAQ.
+- **Recruiting pop-up:** while a recruiting period is on, a small card slides in at the bottom
+  corner of every page (a few seconds after it loads, or once the reader scrolls), with buttons to
+  the Apply page. It shows once per visit, stays away for the rest of the period once someone
+  closes it, and doesn't appear on the Apply page itself. Change the message or turn it off under
+  **Apply page → Application status**.
 
-If you set the site up before these features existed, re-run `supabase/schema.sql` once in
-the Supabase SQL editor. It adds the new tables and columns and keeps all existing data.
+**Updating from an earlier version:** upload the new files (keep your `config.js`), then run the
+whole of `supabase/schema.sql` once in the Supabase SQL editor. It adds the application tables,
+the private `applications` storage bucket and any recruiting tables your project is missing, and
+keeps all existing data. Running it again later is always safe.
 
 ### Emails from the site
 
@@ -298,12 +339,12 @@ people requests access at once on campus Wi-Fi (at an info session, say), raise
 ### Helping someone who can't get in
 
 - **"Email or password is incorrect"** and they had an account on the old site: old accounts
-  didn't carry over. They choose **Request access** and sign up again with the same email.
+  didn't carry over. They choose **Create an account** and sign up again with the same email.
 - **An email error while requesting access:** see above. Meanwhile, check
   **Authentication → Users** in Supabase. If they're listed as waiting for verification,
   delete them there and ask them to request access again once **Confirm email** is off or your
   own sender is connected.
-- **They signed up but see "Thanks — you're on the list":** they're waiting for you. Choose
+- **They signed up but only see the application page:** current members don't need to apply. Choose
   their role in **Admin → Members** (and link their byline if they write).
 
 ### Google Analytics
@@ -320,7 +361,7 @@ sends each page view itself once the real headline is in place, grouped by secti
 | `article_read` | they leave a story | deepest `percent_read`, total `engaged_seconds` |
 | `share` | copy link, LinkedIn, X, email or print | `method` |
 | `newsletter_signup` | someone subscribes | |
-| `application_submit` | someone applies | `roles`, `year`, `heard` |
+| `application_start` | someone presses Start your application on the Apply page | `from` (`hero` or `apply_section`) |
 | `info_session_register` | someone registers for an info session | `session_title` |
 | `coffee_chat_click` | someone opens a host's booking page or email | `host_name`, `method` |
 | `recruiting_notify`, `story_pitch`, `contact_message` | the other forms | |
@@ -334,7 +375,7 @@ typed in the last 30 seconds.
 Set up GA once (Admin, the gear icon, in analytics.google.com):
 
 1. **Data display → Events:** once the events have come in (give it a day), click the star
-   next to `newsletter_signup`, `application_submit` and `info_session_register` to make them
+   next to `newsletter_signup`, `application_start` and `info_session_register` to make them
    key events.
 2. **Data display → Custom definitions → Create custom dimension** (scope: Event) for
    `article_section`, `article_author`, `percent_read`, `chart_title`, `popup_action` and
@@ -345,7 +386,7 @@ Set up GA once (Admin, the gear icon, in analytics.google.com):
 Then **Explore → Free form** with *Page title* and `percent_read` as dimensions and *Event
 count* as the value shows how far people read each story.
 
-Not tracked: the admin panel and members portal, draft previews, browsers that send a
+Not tracked: the admin panel and the portal (so applications themselves aren't), draft previews, browsers that send a
 Global Privacy Control signal, and any browser where someone has signed in to the admin (so
 the team's own visits don't count). Open `fershman.com/?analytics=off` or `?analytics=on` to
 switch a browser out or back in.
@@ -396,10 +437,10 @@ assets/js/data/           live.js (Supabase), demo.js (browser-only), shared.js
 assets/js/site/           public pages, analytics.js (Google Analytics), recruit-popup.js
 assets/js/lib/charts.js   interactive charts (```chart blocks)
 assets/js/admin/          admin views, editor, chart builder, importer
-assets/js/portal/         members portal
+assets/js/portal/         the portal: app.js (sign-in, library), application.js (applications)
 assets/vendor/            bundled libraries (Supabase client, marked, DOMPurify, Turndown, Papa Parse)
 content/seed.json         demo content: your authors and recent headlines, sample portal items
-supabase/schema.sql       database tables, permissions and storage — run once in Supabase
+supabase/schema.sql       database tables, permissions and storage — run in Supabase (safe to re-run)
 _redirects, _headers      Netlify rewrites (old Framer URLs) and security headers
 tools/serve.py            local preview server
 ```

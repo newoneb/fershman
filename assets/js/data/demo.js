@@ -4,7 +4,7 @@ import { uid, slugify } from "../lib/util.js";
 import {
   normalizeAuthor, authorTeams, BYLINE_FIELDS, MARKETING,
   isPublic, byDateDesc, sortAuthors, SETTINGS_DEFAULTS, cleanArticle, roleAtLeast,
-  articleState, pick, AUTHOR_FIELDS, guessMime,
+  articleState, pick, AUTHOR_FIELDS, guessMime, mergeRecruiting, applicationStatus, withReviewStats,
 } from "./shared.js";
 
 const DB_KEY = "fershman-demo-db-v1";
@@ -91,6 +91,36 @@ export async function createDemoAdapter(config) {
   if (!state.periods) {
     state.periods = [];
     state.authors = state.authors.map(normalizeAuthor);
+    writeLS(DB_KEY, state);
+  }
+  if (!state.applications) {
+    // Sample applications, so Admin → Recruiting has something to review.
+    const ago = (days) => new Date(Date.now() - days * 864e5).toISOString();
+    const sample = (name, email, status, days, answers, extra = {}) => ({
+      id: uid(), user_id: `demo-${slugify(name)}`, status, full_name: name, email, answers, file_path: null, file_name: null,
+      message: "", grant_role: "writer", period_id: null, submitted_at: ago(days), decided_at: null, created_at: ago(days + 2), updated_at: ago(days), ...extra,
+    });
+    const maya = sample("Maya Okafor (sample)", "maya@example.com", "submitted", 1, {
+      year: "Second year", major: "Economics", graduation: "June 2028", roles: ["Writer & analyst"], heard: "Info session", met: "Info session",
+      why: "I started reading about private credit after a summer job at a community bank, where loans we would have declined got funded by lenders I'd never heard of. I want to understand who is lending now, on what terms, and what happens when the cycle turns. I'd bring patience with filings and the habit of checking the numbers myself.",
+      pitch: "Private credit funds now lend to the mid-sized companies banks used to serve. I'd compare their loan terms with bank loans and ask what the first defaults are telling us.",
+      sample: "https://example.com/writing-sample", linkedin: "" });
+    const daniel = sample("Daniel Brooks (sample)", "daniel@example.com", "reviewing", 4, {
+      year: "Third year", major: "Statistics", graduation: "June 2027", roles: ["Research", "Writer & analyst"], heard: "A friend or member", met: "Coffee chat",
+      why: "I like arguments that can be checked. In class we model markets as if information were free. I want to write about the places where it isn't, starting with how small companies get priced when no analyst covers them.",
+      pitch: "Regional banks are paying up for deposits again. Who is moving their money, where is it going, and what does that say about the next rate cut?",
+      sample: "", linkedin: "https://www.linkedin.com/in/example" });
+    const priya = sample("Priya Raman (sample)", "priya@example.com", "interview", 6, {
+      year: "First year", major: "Public Policy", graduation: "June 2030", roles: ["Writer & analyst", "Section editor"], heard: "Activities fair", met: "Both",
+      why: "I edited my high school paper and now run a policy blog with two friends. Fershman is where I'd learn to back a policy argument with market evidence, and I'd like to help edit other people's work once I know the house style.",
+      pitch: "Every state is courting chip factories with tax breaks. I'd compare three of the deals and ask whether the jobs math holds up once you count the subsidies.",
+      sample: "https://example.com/policy-blog", linkedin: "" },
+      { message: "Thanks for applying. Two editors would like to meet you on Thursday at 4 pm. Reply to our email if that time doesn't work." });
+    state.applications = [maya, daniel, priya];
+    state.reviews = [
+      { id: uid(), application_id: daniel.id, reviewer_id: null, reviewer_name: "Shaurya Vohra", score: 4, recommendation: "advance", note: "Strong pitch. The sourcing needs work, which editing can fix.", created_at: ago(2) },
+      { id: uid(), application_id: priya.id, reviewer_id: null, reviewer_name: "Veronika Chizhevskaia", score: 5, recommendation: "advance", note: "Clear writer. Already asks who pays and who benefits.", created_at: ago(5) },
+    ];
     writeLS(DB_KEY, state);
   }
   const save = () => {
@@ -384,7 +414,7 @@ export async function createDemoAdapter(config) {
         subscribers: roleAtLeast(role(), "admin") ? state.subscribers.length : 0,
         newMessages: roleAtLeast(role(), "editor") ? state.messages.filter((m) => m.status === "new").length : 0,
         pending: roleAtLeast(role(), "admin") ? state.profiles.filter((p) => p.role === "pending").length : 0,
-        newApplications: isRecruiter() ? state.messages.filter((m) => m.kind === "application" && (m.stage || "new") === "new").length : 0,
+        newApplications: isRecruiter() ? state.applications.filter((a) => a.status === "submitted").length : 0,
       };
     },
 
@@ -498,9 +528,10 @@ export async function createDemoAdapter(config) {
     async listRecruitingPeriods() {
       return clone(state.periods).sort((a, b) => b.starts_on.localeCompare(a.starts_on));
     },
+    async adminListRecruitingPeriods() { return api.listRecruitingPeriods(); },
     async saveRecruitingPeriod(input) {
       needRecruiter();
-      const row = pick(input, ["title", "starts_on", "ends_on", "note"]);
+      const row = pick(input, ["title", "starts_on", "ends_on", "note", "decisions_on"]);
       if (input.id) { const cur = state.periods.find((x) => x.id === input.id); Object.assign(cur, row); save(); return clone(cur); }
       const rec = { id: uid(), note: null, ...row, created_at: nowISO() };
       state.periods.push(rec);
@@ -519,6 +550,106 @@ export async function createDemoAdapter(config) {
       Object.assign(a, pick(patch, BYLINE_FIELDS));
       save();
       return clone(a);
+    },
+
+    // ---------- Applications (portal) ----------
+    // Mirrors guard_application() and grant_on_accept() in supabase/schema.sql.
+    async myApplication() {
+      if (!session) return null;
+      const mine = state.applications.filter((a) => a.user_id === session.user.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      return mine[0] ? clone(mine[0]) : null;
+    },
+    async saveApplication(input, id) {
+      if (!session) throw denied();
+      const row = pick(input, ["full_name", "answers", "file_path", "file_name"]);
+      if (id) {
+        const a = state.applications.find((x) => x.id === id);
+        if (!a || a.user_id !== session.user.id) throw denied();
+        if (a.status !== "draft") throw new Error("This application has been submitted, so it can no longer be changed.");
+        Object.assign(a, row, { updated_at: nowISO() });
+        save();
+        return clone(a);
+      }
+      if (state.applications.some((x) => x.user_id === session.user.id && !["accepted", "declined"].includes(x.status))) {
+        throw new Error("You already have an application in progress. Open it from the portal.");
+      }
+      const a = { id: uid(), user_id: session.user.id, status: "draft", full_name: "", email: session.user.email, answers: {}, file_path: null, file_name: null,
+        message: "", grant_role: "writer", period_id: null, submitted_at: null, decided_at: null, created_at: nowISO(), updated_at: nowISO(), ...row };
+      state.applications.unshift(a);
+      save();
+      return clone(a);
+    },
+    async submitApplication(id) {
+      const a = state.applications.find((x) => x.id === id);
+      if (!session || !a || a.user_id !== session.user.id) throw denied();
+      if (a.status !== "draft") throw new Error("This application has already been submitted.");
+      const st = applicationStatus(mergeRecruiting(state.settings.recruiting), new Date(), state.periods);
+      if (!a.submitted_at && !st.open) throw new Error("Applications are closed right now. Your draft is saved, and you can submit it once they reopen.");
+      if (!String(a.full_name || "").trim()) throw new Error("Add your full name before you submit.");
+      a.period_id = a.period_id || (st.period && st.period.id) || null;
+      Object.assign(a, { status: "submitted", submitted_at: nowISO(), updated_at: nowISO() });
+      save();
+      return clone(a);
+    },
+    async uploadApplicationFile(file) {
+      if (!session) throw denied();
+      const key = `application/${session.user.id}/${uid().slice(0, 8)}`;
+      await filePut(key, file);
+      return { file_path: key, file_name: file.name };
+    },
+    async removeApplicationFile(path) { if (path) await fileDel(path).catch(() => {}); },
+    async applicationFileUrl(path) {
+      const blob = path ? await fileGet(path).catch(() => null) : null;
+      if (!blob) throw new Error("The sample applications have no file to open.");
+      return URL.createObjectURL(blob);
+    },
+    async listApplications() {
+      needRecruiter();
+      return state.applications.map((a) => withReviewStats(clone(a), state.reviews.filter((r) => r.application_id === a.id)))
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    },
+    async updateApplication(id, patch) {
+      needRecruiter();
+      const a = state.applications.find((x) => x.id === id);
+      if (!a) throw new Error("Application not found.");
+      const next = pick(patch, ["status", "message", "grant_role"]);
+      const decided = (s) => s === "accepted" || s === "declined";
+      if (next.status && next.status !== a.status) {
+        if (a.status === "draft") throw new Error("This application is still a draft. You can review it once the applicant submits it.");
+        if ((decided(next.status) || decided(a.status)) && !roleAtLeast(role(), "editor")) throw new Error("Only editors and admins can accept or decline applications.");
+        a.decided_at = decided(next.status) ? nowISO() : null;
+      }
+      const wasAccepted = a.status === "accepted";
+      Object.assign(a, next, { updated_at: nowISO() });
+      if (a.status === "accepted" && !wasAccepted) {
+        const ranks = ["pending", "member", "writer", "editor", "admin"];
+        const p = state.profiles.find((x) => x.id === a.user_id);
+        if (p && ranks.indexOf(a.grant_role) > ranks.indexOf(p.role)) {
+          p.role = a.grant_role;
+          if (!p.full_name) p.full_name = a.full_name;
+        }
+      }
+      save();
+      return clone(a);
+    },
+    async listReviews(applicationId) {
+      needRecruiter();
+      return clone(state.reviews.filter((r) => r.application_id === applicationId)).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    },
+    async addReview(applicationId, { score, recommendation, note }) {
+      needRecruiter();
+      const r = { id: uid(), application_id: applicationId, reviewer_id: me().id, reviewer_name: me().full_name || me().email,
+        score: Number(score) || null, recommendation, note: note || "", created_at: nowISO() };
+      state.reviews.push(r);
+      save();
+      return clone(r);
+    },
+    async deleteReview(id) {
+      needRecruiter();
+      const r = state.reviews.find((x) => x.id === id);
+      if (r && r.reviewer_id !== me().id && !roleAtLeast(role(), "admin")) throw denied();
+      state.reviews = state.reviews.filter((x) => x.id !== id);
+      save();
     },
 
     // ---------- Demo-only helpers ----------
