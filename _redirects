@@ -14,6 +14,8 @@
 /learn-economics-categories/macroeconomics   /learn?topic=Macroeconomics   301
 /learn-economics-categories                  /learn                        301
 /learn-economics-categories/*                /learn                        301
+/learn-economics                             /learn                        301
+/learn-economics/*                           /articles/:splat              301
 /about-us                                    /about.html                   200
 /about                                       /about.html                   200
 /register                                    /subscribe.html               200

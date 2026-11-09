@@ -91,10 +91,15 @@ Netlify can rename the address under **Site configuration → Change site name**
    to the right column (the importer guesses), match your categories and authors, preview,
    and press **Import**.
 
+**Learn Economics lessons** have their own importer on the same page (*Learn Economics lessons
+from Framer*). Export the Learn Economics pages collection as CSV and drop it there: lessons land
+in the Learn Economics hub under Microeconomics or Macroeconomics (from their category), keep their
+dates, cover images, tables and headings, and old `/learn-economics/…` links redirect to them.
+
 What the importer does for you:
 
 - Keeps every article's slug, so old links like `/articles/margin-of-error` keep working.
-  Old `/categories/…`, `/authors/…` and `/learn-economics-categories/…` links also work
+  Old `/categories/…`, `/authors/…`, `/learn-economics/…` and `/learn-economics-categories/…` links also work
   (see `_redirects`).
 - Converts Framer's formatted text into the editor's format, keeping headings, links,
   lists, images and captions.

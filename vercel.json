@@ -106,6 +106,16 @@
       "source": "/portal",
       "destination": "/portal/",
       "permanent": true
+    },
+    {
+      "source": "/learn-economics",
+      "destination": "/learn",
+      "permanent": true
+    },
+    {
+      "source": "/learn-economics/:slug",
+      "destination": "/articles/:slug",
+      "permanent": true
     }
   ],
   "headers": [

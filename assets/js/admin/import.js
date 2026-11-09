@@ -17,11 +17,11 @@ function loadScript(src, globalName) {
   });
 }
 let turndown = null;
-async function htmlToMarkdown(input) {
+async function htmlToMarkdown(input, { lesson = false } = {}) {
   if (!turndown) {
     const { default: TurndownService } = await import("/assets/vendor/turndown.es.js");
     turndown = new TurndownService({ headingStyle: "atx", bulletListMarker: "-", codeBlockStyle: "fenced", emDelimiter: "*", strongDelimiter: "**", hr: "---" });
-    turndown.keep(["iframe"]);
+    turndown.keep(["iframe", "table"]); // tables stay as HTML, which the article page styles
     turndown.addRule("figure", {
       filter: "figure",
       replacement: (content, node) => {
@@ -34,6 +34,8 @@ async function htmlToMarkdown(input) {
       },
     });
   }
+  // Framer lessons use h4 for sections and h5 for sub-sections; on Fershman those are h2 and h3.
+  if (lesson) input = String(input).replace(/<(\/?)h[34](\s|>)/gi, "<$1h2$2").replace(/<(\/?)h5(\s|>)/gi, "<$1h3$2");
   return turndown.turndown(sanitizeHTML(input)).replace(/\n{3,}/g, "\n\n").trim();
 }
 const looksHTML = (s) => /<\/?(p|h[1-6]|ul|ol|li|strong|em|b|i|a|img|blockquote|figure|br|div|span)[\s>/]/i.test(s);
@@ -85,7 +87,7 @@ function matchSection(value) {
 const ARTICLE_TARGETS = [
   { key: "title", label: "Headline", required: true, guess: ["title", "name", "headline"] },
   { key: "slug", label: "Slug (web address)", guess: ["slug", "url", "path", "handle"] },
-  { key: "dek", label: "Standfirst or summary", guess: ["summary", "description", "excerpt", "subtitle", "dek", "standfirst", "lead", "intro", "subheading", "short description"] },
+  { key: "dek", label: "Standfirst or summary", guess: ["summary", "description", "excerpt", "exerpt", "subtitle", "dek", "standfirst", "lead", "intro", "subheading", "short description"] },
   { key: "body", label: "Article text", required: true, guess: ["content", "body", "text", "article", "post", "rich text", "html", "article body"] },
   { key: "published_at", label: "Publish date", guess: ["date", "published", "publish date", "published date", "published at", "publication date", "created"] },
   { key: "section", label: "Section or category", guess: ["category", "categories", "section"] },
@@ -97,6 +99,9 @@ const ARTICLE_TARGETS = [
   { key: "featured", label: "Featured (yes/no)", guess: ["featured", "feature", "pinned"] },
   { key: "draft", label: "Draft flag (yes/no)", guess: ["draft", "is draft", "hidden", "archived"] },
 ];
+// Learn Economics lessons: always in the Learn section, filed under a topic from their category.
+const LEARN_TARGETS = ARTICLE_TARGETS.filter((t) => !["topic", "featured"].includes(t.key)).map((t) => (t.key === "section"
+  ? { ...t, label: "Category (Microeconomics or Macroeconomics)", guess: ["learn economics category", "category", "categories", "topic"] } : t));
 const AUTHOR_TARGETS = [
   { key: "name", label: "Name", required: true, guess: ["name", "full name", "title", "author"] },
   { key: "slug", label: "Slug", guess: ["slug", "url", "handle"] },
@@ -121,6 +126,10 @@ export async function importView(ctx) {
         </div>
         <div data-importer="articles"></div>
       </section>
+      <section class="card card-pad stack" id="imp-learn" aria-labelledby="il-h">
+        <div><h2 id="il-h">Learn Economics lessons from Framer</h2><p>Export your Learn Economics pages collection the same way. Lessons go into the ${config.learn.name} hub, filed under ${config.learn.topics.join(" or ")} from their category, with their original dates and cover images. Running it again updates lessons with the same slug.</p></div>
+        <div data-importer="learn"></div>
+      </section>
       <section class="card card-pad stack" id="imp-authors" aria-labelledby="iau-h">
         <div><h2 id="iau-h">Authors from Framer</h2><p>Optional. Export your authors collection the same way to bring over photos and bios. Authors with the same slug are updated.</p></div>
         <div data-importer="authors"></div>
@@ -134,6 +143,7 @@ export async function importView(ctx) {
   </div>`);
 
   setupImporter($('[data-importer="articles"]', ctx.el), "articles", ctx);
+  setupImporter($('[data-importer="learn"]', ctx.el), "learn", ctx);
   setupImporter($('[data-importer="authors"]', ctx.el), "authors", ctx);
 
   const starter = $("[data-starter]", ctx.el);
@@ -161,7 +171,7 @@ export async function importView(ctx) {
 }
 
 function setupImporter(host, kind, ctx) {
-  const targets = kind === "articles" ? ARTICLE_TARGETS : AUTHOR_TARGETS;
+  const targets = kind === "authors" ? AUTHOR_TARGETS : kind === "learn" ? LEARN_TARGETS : ARTICLE_TARGETS;
   let rows = [];
   let headers = [];
   let map = {};
@@ -185,7 +195,7 @@ function setupImporter(host, kind, ctx) {
       headers = res.meta.fields || [];
       if (!rows.length) throw new Error("That file has no rows.");
       map = guessMapping(headers, targets);
-      if (kind === "articles") authors = await db.listAuthors();
+      if (kind !== "authors") authors = await db.listAuthors();
       drawMapping(file.name);
     } catch (ex) {
       toast(friendlyError(ex), { error: true });
@@ -208,10 +218,17 @@ function setupImporter(host, kind, ctx) {
   }
 
   function drawValueMaps() {
-    if (kind !== "articles") return "";
+    if (kind === "authors") return "";
     const sCol = map.section, aCol = map.author;
     let out = "";
-    if (sCol) {
+    if (sCol && kind === "learn") {
+      const vals = distinct(sCol);
+      const topics = config.learn.topics;
+      vals.forEach((v) => { if (!(v in sectionMap)) sectionMap[v] = topics.find((t) => slugify(t) === slugify(v)) || topics[0]; });
+      out += html`<div class="stack" style="gap:8px"><h3 class="small" style="font-weight:700">Match categories to topics</h3>
+        <table class="table map-table"><tbody>${vals.map((v) => html`<tr><td>${truncate(v, 50)}</td><td>
+          <select class="select" data-secmap="${v}">${topics.map((t) => html`<option value="${t}" ${sectionMap[v] === t ? raw("selected") : ""}>${t}</option>`)}</select></td></tr>`)}</tbody></table></div>`.value;
+    } else if (sCol) {
       const vals = distinct(sCol);
       vals.forEach((v) => { if (!(v in sectionMap)) sectionMap[v] = matchSection(v) || config.sections[0].slug; });
       out += html`<div class="stack" style="gap:8px"><h3 class="small" style="font-weight:700">Match section values</h3>
@@ -246,7 +263,7 @@ function setupImporter(host, kind, ctx) {
         </table></div>
       </div>
       <div data-valuemaps class="stack">${drawValueMaps()}</div>
-      ${kind === "articles" ? html`
+      ${kind !== "authors" ? html`
       <div class="stack" style="gap:10px"><h3 class="small" style="font-weight:700">Options</h3>
         <label class="toggle"><input type="checkbox" data-opt="published" checked><span class="track"></span>Publish imported articles with their original dates</label>
         ${LIVE ? html`<label class="toggle"><input type="checkbox" data-opt="rehost" checked><span class="track"></span>Copy images into your own storage (recommended before you cancel Framer)</label>` : ""}
@@ -264,11 +281,12 @@ function setupImporter(host, kind, ctx) {
       const title = get(r, "title");
       if (!title) { skipped.push("(row without a headline)"); continue; }
       let body = get(r, "body");
-      if (looksHTML(body)) body = await htmlToMarkdown(body);
+      if (looksHTML(body)) body = await htmlToMarkdown(body, { lesson: kind === "learn" });
       const sVal = String(get(r, "section")).split(",")[0].trim();
       const aVal = String(get(r, "author")).split(",")[0].trim();
-      const section = sVal ? sectionMap[sVal] || matchSection(sVal) || config.sections[0].slug : config.sections[0].slug;
-      let topic = get(r, "topic") || null;
+      const learn = kind === "learn";
+      const section = learn ? "learn" : sVal ? sectionMap[sVal] || matchSection(sVal) || config.sections[0].slug : config.sections[0].slug;
+      let topic = learn ? (sVal && sectionMap[sVal]) || null : get(r, "topic") || null;
       if (section === "learn" && !topic) topic = config.learn.topics.find((t) => slugify(t) === slugify(sVal)) || null;
       out.push({
         slug: cleanSlug(get(r, "slug")) || slugify(title),
@@ -345,11 +363,11 @@ function setupImporter(host, kind, ctx) {
     const { items, skipped } = await buildArticles();
     const newAuthors = [...new Set(items.map((a) => a.author_key).filter((k) => k.startsWith("new:")))].map((k) => k.slice(4));
     mount(out, html`
-      <div class="notice">${items.length} articles ready${skipped.length ? `, ${skipped.length} rows skipped (no headline)` : ""}.${newAuthors.length ? ` ${newAuthors.length} new author${newAuthors.length === 1 ? "" : "s"} will be created.` : ""}</div>
+      <div class="notice">${items.length} ${kind === "learn" ? "lessons" : "articles"} ready${skipped.length ? `, ${skipped.length} rows skipped (no headline)` : ""}.${newAuthors.length ? ` ${newAuthors.length} new author${newAuthors.length === 1 ? "" : "s"} will be created.` : ""}</div>
       <div class="import-preview"><table class="table"><thead><tr><th>Headline</th><th>Section</th><th>Date</th><th>Text</th></tr></thead><tbody>
-        ${items.slice(0, 6).map((a) => html`<tr><td><strong>${a.title}</strong><div class="small muted">/articles/${a.slug}</div></td><td>${(config.sections.find((s) => s.slug === a.section) || { name: config.learn.name }).name}</td><td class="small">${fmtDate(a.published_at)}</td><td class="small muted">${truncate(a.body.replace(/[#>*_[\]()!|-]/g, " "), 90)}</td></tr>`)}
+        ${items.slice(0, 6).map((a) => html`<tr><td><strong>${a.title}</strong><div class="small muted">/articles/${a.slug}</div></td><td>${a.section === "learn" ? `${config.learn.name}${a.topic ? `: ${a.topic}` : ""}` : (config.sections.find((s) => s.slug === a.section) || { name: a.section }).name}</td><td class="small">${fmtDate(a.published_at)}</td><td class="small muted">${truncate(a.body.replace(/[#>*_[\]()!|-]/g, " "), 90)}</td></tr>`)}
       </tbody></table></div>
-      <div class="row"><button class="btn btn-accent" type="button" data-go>Import ${items.length} articles</button></div>
+      <div class="row"><button class="btn btn-accent" type="button" data-go>Import ${items.length} ${kind === "learn" ? "lessons" : "articles"}</button></div>
       <div data-progress hidden class="stack" style="gap:6px"><div class="progress-bar"><span></span></div><span class="small muted" data-progress-text></span></div>`);
     $("[data-go]", out).addEventListener("click", async (e) => {
       e.currentTarget.disabled = true;
@@ -377,7 +395,7 @@ function setupImporter(host, kind, ctx) {
         bar.style.width = "100%";
         mount(out, html`<div class="notice"><strong>Import finished.</strong> ${res.inserted} new, ${res.updated} updated${res.failed.length ? `, ${res.failed.length} failed` : ""}.${imgNote}</div>
           ${res.failed.length ? html`<ul class="small">${res.failed.map((f) => html`<li><strong>${f.slug}</strong>: ${f.error}</li>`)}</ul>` : ""}
-          <div class="row"><a class="btn" href="#/articles">See articles</a><a class="btn btn-ghost" href="/" target="_blank" rel="noopener">View the site</a></div>`);
+          <div class="row">${kind === "learn" ? html`<a class="btn" href="/learn" target="_blank" rel="noopener">See the lessons</a>` : html`<a class="btn" href="#/articles">See articles</a>`}<a class="btn btn-ghost" href="/" target="_blank" rel="noopener">View the site</a></div>`);
         toast("Import finished");
         ctx.refreshCounts();
       } catch (ex) {
