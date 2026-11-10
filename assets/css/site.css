@@ -67,7 +67,15 @@
 .masthead-rule { margin-top: clamp(16px, 2.2vw, 26px); height: 4px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
 
 .mainnav { border-bottom: 1px solid var(--rule); }
-.mainnav ul { list-style: none; display: flex; justify-content: center; flex-wrap: wrap; gap: 2px clamp(6px, 1.4vw, 20px); padding-block: 4px; }
+.mainnav ul { list-style: none; display: flex; flex-wrap: nowrap; gap: 2px clamp(6px, 1.2vw, 20px); padding-block: 4px; overflow-x: auto; scrollbar-width: none; }
+/* One row, centered while it fits; with more sections than fit, it scrolls sideways instead of wrapping. */
+.mainnav ul::-webkit-scrollbar { display: none; }
+.mainnav li:first-child { margin-left: auto; }
+.mainnav li:last-child { margin-right: auto; }
+.mainnav a { white-space: nowrap; }
+.mainnav ul.fade-end { mask-image: linear-gradient(to right, #000 calc(100% - 64px), transparent); }
+.mainnav ul.fade-start { mask-image: linear-gradient(to left, #000 calc(100% - 64px), transparent); }
+.mainnav ul.fade-start.fade-end { mask-image: linear-gradient(to right, transparent, #000 64px, #000 calc(100% - 64px), transparent); }
 .mainnav a {
   display: block; padding: 14px 4px 13px; color: var(--ink); text-decoration: none;
   font: 500 0.71875rem/1 var(--sans); letter-spacing: var(--caps); text-transform: uppercase; border-bottom: 1px solid transparent;

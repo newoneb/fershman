@@ -5,6 +5,7 @@ import { initChrome, setMeta, chromeData } from "./chrome.js";
 import { track } from "./analytics.js";
 import { story, articleUrl, sectionUrl, avatar, authorUrl, skeletonCards, emptyState, errorState } from "./cards.js";
 import { teamList, authorTeams, isMarketing, isHouseByline, mergeRecruiting } from "../data/shared.js";
+import { prettify } from "../data/sections.js";
 
 const page = document.body.dataset.page;
 const main = $("#main");
@@ -39,8 +40,14 @@ const moreButton = raw(`<div class="load-more" id="more-wrap" hidden><button cla
 async function categoryPage() {
   const slug = routeParam("/categories") || "latest";
   const isLatest = slug === "latest";
-  const section = config.sections.find((s) => s.slug === slug);
+  let section = config.sections.find((s) => s.slug === slug);
   initChrome({ active: isLatest ? "latest" : slug });
+  if (!isLatest && !section) {
+    // A section added in Admin → Sections that this browser hasn't seen yet, or an old section value.
+    await Promise.resolve((chromeData() || {}).settings).catch(() => null);
+    section = config.sections.find((s) => s.slug === slug);
+    if (!section && (await db.listArticles({ section: slug, limit: 1 }).catch(() => [])).length) section = { slug, name: prettify(slug), description: "" };
+  }
   if (!isLatest && !section) return notFound("Section not found", "That section doesn't exist. Browse all categories instead.");
   const name = isLatest ? "Latest" : section.name;
   const desc = isLatest ? "Every story from The Fershman Journal, newest first." : section.description;

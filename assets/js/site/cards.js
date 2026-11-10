@@ -1,8 +1,9 @@
 // Story card markup shared by every public page.
 import { config } from "../data/db.js";
+import { topicLabel, prettify } from "../data/sections.js";
 import { html, raw, esc, safeUrl, coverArt, initials, fmtDate, icon } from "../lib/util.js";
 
-export const sectionBySlug = (slug) => config.sections.find((s) => s.slug === slug) || (slug === "learn" ? { slug: "learn", name: config.learn.name } : null);
+export const sectionBySlug = (slug) => config.sections.find((s) => s.slug === slug) || (slug === "learn" ? { slug: "learn", name: config.learn.name } : slug ? { slug, name: prettify(slug) } : null);
 export const sectionName = (slug) => (sectionBySlug(slug) || {}).name || "";
 export const sectionUrl = (slug) => (slug === "learn" ? "/learn" : `/categories/${slug}`);
 export const articleUrl = (a) => `/articles/${encodeURIComponent(a.slug)}`;
@@ -10,11 +11,12 @@ export const authorUrl = (au) => `/authors/${encodeURIComponent(au.slug)}`;
 
 export function kicker(a, { showSection = false } = {}) {
   const sec = sectionBySlug(a.section);
-  if (!sec && !a.topic) return "";
-  if (showSection && sec && a.topic) {
-    return html`<p class="kicker"><a href="${sectionUrl(sec.slug)}">${sec.name}</a><span class="kicker-sep">/</span><span>${a.topic}</span></p>`;
+  const topic = topicLabel(a.topic);
+  if (!sec && !topic) return "";
+  if (showSection && sec && topic) {
+    return html`<p class="kicker"><a href="${sectionUrl(sec.slug)}">${sec.name}</a><span class="kicker-sep">/</span><span>${topic}</span></p>`;
   }
-  const label = a.section === "opinion" ? "Opinion" : a.topic || (sec && sec.name);
+  const label = a.section === "opinion" ? "Opinion" : topic || (sec && sec.name);
   return html`<p class="kicker${a.section === "opinion" ? " label-opinion" : ""}"><a href="${sec ? sectionUrl(sec.slug) : "#"}">${label}</a></p>`;
 }
 

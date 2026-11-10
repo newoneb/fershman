@@ -750,6 +750,12 @@ drop policy if exists "Admins add settings" on public.settings;
 create policy "Admins add settings" on public.settings for insert to authenticated with check (public.is_admin());
 drop policy if exists "Admins change settings" on public.settings;
 create policy "Admins change settings" on public.settings for update to authenticated using (public.is_admin()) with check (public.is_admin());
+-- Editors manage the list of sections (Admin → Sections, and "New section" in the editor).
+drop policy if exists "Editors add sections" on public.settings;
+create policy "Editors add sections" on public.settings for insert to authenticated with check (key = 'sections' and public.is_editor());
+drop policy if exists "Editors change sections" on public.settings;
+create policy "Editors change sections" on public.settings for update to authenticated
+  using (key = 'sections' and public.is_editor()) with check (key = 'sections' and public.is_editor());
 
 -- recruiting periods: public dates (the internal note is hidden from visitors by column grants below)
 drop policy if exists "Recruiting periods are public" on public.recruiting_periods;

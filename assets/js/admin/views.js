@@ -4,11 +4,12 @@ import { html, raw, mount, icon, fmtDate, fmtDateTime, timeAgo, initials, safeUr
 import { toast, confirmDialog, openPanel, copyText, downloadFile } from "../lib/ui.js";
 import { renderMarkdown } from "../lib/md.js";
 import { articleState, roleAtLeast, ROLES, ROLE_LABELS, friendlyError, itemKind, SETTINGS_DEFAULTS, teamList, authorTeams, MARKETING } from "../data/shared.js";
+import { topicLabel, prettify, builtInSlugs } from "../data/sections.js";
 import { kindIcon, kindLabel, openUploadPanel, openViewer } from "../shared/portal-ui.js";
 
 const STATE_LABEL = { published: "Published", scheduled: "Scheduled", review: "In review", draft: "Draft" };
 const pill = (state) => html`<span class="pill pill-${state}">${STATE_LABEL[state] || state}</span>`;
-const sectionName = (slug) => (config.sections.find((s) => s.slug === slug) || (slug === "learn" ? { name: config.learn.name } : { name: slug || "—" })).name;
+const sectionName = (slug) => (config.sections.find((s) => s.slug === slug) || (slug === "learn" ? { name: config.learn.name } : { name: slug ? prettify(slug) : "—" })).name;
 const head = (title, sub, actions = "") => html`<div class="view-head"><div><h1>${title}</h1>${sub ? html`<p>${sub}</p>` : ""}</div><div class="view-actions">${actions}</div></div>`;
 const articleLink = (a) => `/articles/${encodeURIComponent(a.slug)}${articleState(a) === "published" ? "" : `?preview=${a.id}`}`;
 
@@ -98,7 +99,7 @@ export async function articles(ctx) {
         <tbody>${rows.map((a) => {
           const st = articleState(a);
           return html`<tr class="clickable" data-href="#/articles/${a.id}">
-            <td data-cell="main"><div class="t-title">${a.featured ? html`<span title="Featured on the front page" style="color:var(--accent)">★ </span>` : ""}${a.title || "Untitled"}</div><div class="t-sub">${sectionName(a.section)}${a.topic ? html` — ${a.topic}` : ""}</div></td>
+            <td data-cell="main"><div class="t-title">${a.featured ? html`<span title="Featured on the front page" style="color:var(--accent)">★ </span>` : ""}${a.title || "Untitled"}</div><div class="t-sub">${sectionName(a.section)}${a.topic ? html` — ${topicLabel(a.topic)}` : ""}</div></td>
             <td data-cell="hide">${a.author ? a.author.name : html`<span class="muted">—</span>`}</td>
             <td>${pill(st)}</td>
             <td class="small muted">${st === "published" || st === "scheduled" ? fmtDateTime(a.published_at) : `Edited ${timeAgo(a.updated_at)}`}</td>
@@ -649,4 +650,123 @@ export async function byline(ctx) {
     try { await db.updateMyByline(patch); toast("Byline saved"); }
     catch (ex) { $(".form-error", ctx.el).textContent = friendlyError(ex); }
   });
+}
+
+// ---------------------------------------------------------------- Sections and topic lines
+export async function sections(ctx) {
+  const [, articles] = await Promise.all([db.getSettings(), db.adminListArticles()]);
+  const core = builtInSlugs();
+  const list = config.sections.map((x) => ({ slug: x.slug, name: x.name, description: x.description || "", nav: x.nav !== false, core: core.has(x.slug) }));
+  const countIn = (slug) => articles.filter((a) => a.section === slug).length;
+  const topics = (() => {
+    const m = new Map();
+    for (const a of articles) {
+      if (a.section === "learn" || !a.topic) continue;
+      const r = m.get(a.topic) || { raw: a.topic, count: 0 };
+      r.count++;
+      m.set(a.topic, r);
+    }
+    return [...m.values()].sort((x, y) => y.count - x.count || x.raw.localeCompare(y.raw));
+  })();
+  const odd = topics.filter((t) => topicLabel(t.raw) !== t.raw).reduce((n, t) => n + t.count, 0);
+
+  const draw = () => mount(ctx.el, html`<div class="view">
+    ${head("Sections", "The sections stories are filed under, and the topic line above each headline.")}
+    <div class="stack">
+      <section class="card card-pad stack" aria-labelledby="sec-h">
+        <div><h2 id="sec-h">Sections</h2><p>Rename sections, choose which appear in the menu, or add new ones. Every section has its own page and is listed under All sections, whether or not it's in the menu. Editors can also add a section from the article editor.</p></div>
+        <div class="table-card card"><table class="table map-table">
+          <thead><tr><th>Name</th><th>Description</th><th>In the menu</th><th>Stories</th><th><span class="sr-only">Remove</span></th></tr></thead>
+          <tbody>${list.map((x, i) => html`<tr data-i="${i}">
+            <td><input class="input" data-f="name" value="${x.name}" aria-label="Name"><div class="t-sub">/categories/${x.slug}</div></td>
+            <td><input class="input" data-f="description" value="${x.description}" aria-label="Description of ${x.name}"></td>
+            <td><label class="toggle"><input type="checkbox" data-f="nav" ${x.nav ? raw("checked") : ""}><span class="track"></span><span class="sr-only">Show ${x.name} in the menu</span></label></td>
+            <td class="small muted">${countIn(x.slug)}</td>
+            <td>${x.core ? "" : countIn(x.slug)
+              ? html`<span class="small muted" title="Move its stories to another section first">In use</span>`
+              : html`<button class="btn btn-ghost btn-sm" type="button" data-remove="${i}">Remove</button>`}</td>
+          </tr>`)}</tbody></table></div>
+        <div class="row" style="align-items:flex-end">
+          <div class="field" style="flex:1 1 200px"><label for="ns-name">New section</label><input class="input" id="ns-name" placeholder="Venture Capital"></div>
+          <div class="field" style="flex:2 1 300px"><label for="ns-desc">Description <span class="hint">(optional)</span></label><input class="input" id="ns-desc" placeholder="One sentence for the top of the section page."></div>
+          <button class="btn" type="button" data-add>${icon("plus")} Add</button>
+        </div>
+        <div class="row"><button class="btn btn-accent" type="button" data-save-sections>Save sections</button><span class="small muted" data-sec-status></span></div>
+      </section>
+
+      <section class="card card-pad stack" aria-labelledby="top-h">
+        <div><h2 id="top-h">Topic lines</h2><p>The small green label above each headline. Fix names that came over from Framer as web addresses, merge spellings, or move every story with a topic into a section, for example everything about private equity into Private Equity. Learn Economics lessons aren't listed here.</p></div>
+        ${odd ? html`<div class="notice">${odd} ${odd === 1 ? "story has a topic line" : "stories have topic lines"} that look like web addresses. Readers already see the tidy name; apply the changes to store it too.</div>` : ""}
+        ${topics.length ? html`<div class="table-card card"><table class="table map-table">
+          <thead><tr><th>Topic now</th><th>Shows as</th><th>Stories</th><th>Move these stories to</th></tr></thead>
+          <tbody>${topics.map((t, i) => html`<tr data-t="${i}">
+            <td>${t.raw}${topicLabel(t.raw) !== t.raw ? html`<div class="t-sub" style="color:var(--warn)">Looks like a web address</div>` : ""}</td>
+            <td><input class="input" data-tf="label" value="${topicLabel(t.raw)}" aria-label="New name for ${t.raw}"></td>
+            <td class="small muted">${t.count}</td>
+            <td><select class="select" data-tf="section" aria-label="Section for stories about ${t.raw}"><option value="">Keep their sections</option>${config.sections.map((x) => html`<option value="${x.slug}">${x.name}</option>`)}</select></td>
+          </tr>`)}</tbody></table></div>
+          <div class="row"><button class="btn btn-accent" type="button" data-apply-topics>Apply changes</button><span class="small muted" data-topic-status></span></div>`
+          : html`<p class="small muted">No stories have a topic line yet.</p>`}
+      </section>
+    </div>
+  </div>`);
+
+  const collect = () => $$("tr[data-i]", ctx.el).forEach((tr) => {
+    const x = list[Number(tr.dataset.i)];
+    x.name = $('[data-f="name"]', tr).value.trim() || x.name;
+    x.description = $('[data-f="description"]', tr).value.trim();
+    x.nav = $('[data-f="nav"]', tr).checked;
+  });
+
+  ctx.el.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-add]")) {
+      collect();
+      const name = $("#ns-name", ctx.el).value.trim();
+      const slug = slugify(name);
+      if (!slug) { toast("Give the new section a name.", { error: true }); return; }
+      if (["learn", "latest"].includes(slug) || list.some((x) => x.slug === slug)) { toast("There's already a section with that name.", { error: true }); return; }
+      list.push({ slug, name, description: $("#ns-desc", ctx.el).value.trim(), nav: false, core: false });
+      draw();
+      $("#sec-h", ctx.el).scrollIntoView({ block: "start" });
+      $("[data-sec-status]", ctx.el).textContent = `${name} added. Tick In the menu if it should appear there, then save.`;
+    }
+    const rm = e.target.closest("[data-remove]");
+    if (rm) { collect(); list.splice(Number(rm.dataset.remove), 1); draw(); }
+    const save = e.target.closest("[data-save-sections]");
+    if (save) {
+      collect();
+      save.disabled = true;
+      try {
+        await db.saveSetting("sections", list.map(({ slug, name, description, nav }) => ({ slug, name, description, nav })));
+        toast("Sections saved");
+        $("[data-sec-status]", ctx.el).textContent = "Saved. Menus show the change on the next page you open.";
+      } catch (ex) { toast(friendlyError(ex), { error: true }); }
+      finally { save.disabled = false; }
+    }
+    const apply = e.target.closest("[data-apply-topics]");
+    if (apply) {
+      const changes = [];
+      $$("tr[data-t]", ctx.el).forEach((tr) => {
+        const t = topics[Number(tr.dataset.t)];
+        const label = $('[data-tf="label"]', tr).value.trim();
+        const sec = $('[data-tf="section"]', tr).value;
+        for (const a of articles) {
+          if (a.section === "learn" || a.topic !== t.raw) continue;
+          const c = { id: a.id };
+          if (label !== a.topic) c.topic = label || null;
+          if (sec && sec !== a.section) c.section = sec;
+          if ("topic" in c || c.section) changes.push(c);
+        }
+      });
+      if (!changes.length) { toast("Nothing to change."); return; }
+      const status = $("[data-topic-status]", ctx.el);
+      apply.disabled = true;
+      try {
+        await db.retopicArticles(changes, { onProgress: (d, n) => { status.textContent = `Updating ${d} of ${n}…`; } });
+        toast(`Updated ${changes.length} ${changes.length === 1 ? "story" : "stories"}`);
+        await sections(ctx);
+      } catch (ex) { status.textContent = friendlyError(ex); apply.disabled = false; }
+    }
+  });
+  draw();
 }

@@ -4,6 +4,29 @@ import { html, raw, mount, icon, slugify, safeUrl, coverArt, wordCount, readMinu
 import { toast, confirmDialog, openPanel, promptDialog } from "../lib/ui.js";
 import { renderMarkdown, enhance, EMBED_HOSTS } from "../lib/md.js";
 import { articleState, roleAtLeast, friendlyError } from "../data/shared.js";
+import { topicLabel } from "../data/sections.js";
+
+/** Editors can add a section without leaving the article. It starts outside the menu; Admin → Sections can add it there. */
+async function addSectionFrom(sel, fallback) {
+  const back = () => { sel.value = fallback; return fallback; };
+  const name = String((await promptDialog("Section name", { title: "New section", placeholder: "Venture Capital", confirm: "Add section" })) || "").trim();
+  if (!name) return back();
+  const slug = slugify(name);
+  if (!slug || ["learn", "latest"].includes(slug)) { toast("Choose another name for the section.", { error: true }); return back(); }
+  try {
+    if (!config.sections.some((s) => s.slug === slug)) {
+      const s = await db.getSettings();
+      await db.saveSetting("sections", [...(Array.isArray(s.sections) ? s.sections : []), { slug, name, description: "", nav: false }]);
+      const opt = document.createElement("option");
+      opt.value = slug;
+      opt.textContent = name;
+      sel.insertBefore(opt, sel.querySelector('option[value="learn"]'));
+      toast(`Added ${name}. Show it in the menu from Admin → Sections.`);
+    }
+    sel.value = slug;
+    return slug;
+  } catch (ex) { toast(friendlyError(ex), { error: true }); return back(); }
+}
 
 const STATE_LABEL = { published: "Published", scheduled: "Scheduled", review: "In review", draft: "Draft" };
 
@@ -27,7 +50,7 @@ export async function editor(ctx, id) {
   let mode = wide ? "split" : "write";
 
   const authorOptions = html`<option value="">No byline</option>${authors.map((au) => html`<option value="${au.id}" ${au.id === a.author_id ? raw("selected") : ""}>${au.name}</option>`)}`;
-  const sectionOptions = html`${config.sections.map((s) => html`<option value="${s.slug}" ${s.slug === a.section ? raw("selected") : ""}>${s.name}</option>`)}<option value="learn" ${a.section === "learn" ? raw("selected") : ""}>${config.learn.name} (lesson)</option>`;
+  const sectionOptions = html`${config.sections.map((s) => html`<option value="${s.slug}" ${s.slug === a.section ? raw("selected") : ""}>${s.name}</option>`)}<option value="learn" ${a.section === "learn" ? raw("selected") : ""}>${config.learn.name} (lesson)</option>${canPublish ? html`<option value="__new">＋ New section…</option>` : ""}`;
   const topicList = [...new Set([...config.topics, ...config.learn.topics])];
   const tb = (name, label, act) => html`<button class="icon-btn" type="button" data-md="${act}" title="${label}" aria-label="${label}">${icon(name)}</button>`;
 
@@ -79,8 +102,8 @@ export async function editor(ctx, id) {
         </section>
         <section class="card side-card">
           <h2>Placement</h2>
-          <div class="field"><label for="ed-section">Section</label><select class="select" id="ed-section">${sectionOptions}</select></div>
-          <div class="field"><label for="ed-topic">Topic line</label><input class="input" id="ed-topic" list="ed-topics" value="${a.topic || ""}" placeholder="e.g. M&A and Restructuring"><datalist id="ed-topics">${topicList.map((t) => html`<option value="${t}">`)}</datalist><span class="hint">Small green label above the headline.</span></div>
+          <div class="field"><label for="ed-section">Section</label><select class="select" id="ed-section" data-prev="${a.section}">${sectionOptions}</select></div>
+          <div class="field"><label for="ed-topic">Topic line</label><input class="input" id="ed-topic" list="ed-topics" value="${topicLabel(a.topic)}" placeholder="e.g. M&A and Restructuring"><datalist id="ed-topics">${topicList.map((t) => html`<option value="${t}">`)}</datalist><span class="hint">Small green label above the headline.</span></div>
           <div class="field"><label for="ed-author">Byline</label><select class="select" id="ed-author">${authorOptions}</select></div>
           <div class="field"><label for="ed-tags">Tags</label><input class="input" id="ed-tags" value="${(a.tags || []).join(", ")}" placeholder="Private Equity, Rates"><span class="hint">Separate with commas.</span></div>
         </section>
@@ -362,7 +385,11 @@ export async function editor(ctx, id) {
     if (e.target.closest(".editor")) markDirty();
   });
   ctx.el.addEventListener("change", (e) => {
-    if (e.target.id === "ed-section") drawCover();
+    if (e.target.id === "ed-section") {
+      const sel = e.target;
+      if (sel.value === "__new") addSectionFrom(sel, sel.dataset.prev).then((v) => { sel.dataset.prev = v; drawCover(); });
+      else { sel.dataset.prev = sel.value; drawCover(); }
+    }
     if (e.target.closest(".editor-side")) markDirty();
   });
   ctx.el.addEventListener("click", async (e) => {

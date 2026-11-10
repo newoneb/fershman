@@ -10,6 +10,7 @@ const NAV = [
   { key: "dashboard", label: "Dashboard", icon: "home", min: "writer" },
   { key: "articles", label: "Articles", icon: "doc", min: "writer", badge: (c) => c.review },
   { key: "authors", label: "Authors", icon: "users", min: "editor" },
+  { key: "sections", label: "Sections", icon: "folder", min: "editor" },
   { key: "portal", label: "Member portal", icon: "folder", min: "editor" },
   { key: "inbox", label: "Inbox", icon: "inbox", min: "editor", badge: (c) => c.newMessages },
   { key: "recruiting", label: "Recruiting", icon: "calendar", min: "writer", allow: (s) => roleAtLeast(s.profile.role, "editor") || s.recruiter, badge: (c) => c.newApplications },

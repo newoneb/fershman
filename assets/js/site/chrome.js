@@ -17,12 +17,13 @@ const JOURNAL = [
   { href: "/apply", label: "Apply", key: "apply" },
 ];
 
+const inNav = (s) => s.nav !== false;
 const here = (key, active) => (key && key === active ? raw('aria-current="page"') : "");
 const applyMark = (key) => (key === "apply" ? raw("data-apply-link") : "");
 
 function sectionItems() {
   return [{ href: "/categories/latest", label: "Latest", key: "latest" }]
-    .concat(config.sections.map((s) => ({ href: `/categories/${s.slug}`, label: s.name, key: s.slug })))
+    .concat(config.sections.filter(inNav).map((s) => ({ href: `/categories/${s.slug}`, label: s.name, key: s.slug })))
     .concat([{ href: "/learn", label: config.learn.name, key: "learn" }]);
 }
 const journalLinks = (active, items = JOURNAL) => items.map((j) => html`<a href="${j.href}" ${applyMark(j.key)} ${here(j.key, active)}>${j.label}</a>`);
@@ -69,7 +70,7 @@ function header(active) {
     <div class="container">
       <button class="icon-btn" type="button" data-drawer-open aria-label="Open menu" aria-controls="site-drawer">${icon("menu")}</button>
       <a class="compact-mark" href="/">${S.shortName}</a>
-      <nav class="compact-nav" aria-label="Sections (compact)">${config.sections.map((s) => html`<a href="/categories/${s.slug}" ${here(s.slug, active)}>${s.name}</a>`)}</nav>
+      <nav class="compact-nav" aria-label="Sections (compact)">${config.sections.filter(inNav).map((s) => html`<a href="/categories/${s.slug}" ${here(s.slug, active)}>${s.name}</a>`)}</nav>
       <div class="compact-actions">
         <nav class="compact-journal" aria-label="The journal (compact)">${journalLinks(active, JOURNAL.filter((j) => j.key !== "submit"))}</nav>
         <a class="icon-btn" href="/search" aria-label="Search">${icon("search")}</a>
@@ -86,7 +87,7 @@ function header(active) {
     <div id="drawer-apply"></div>
     <nav>
       <h2>Sections</h2>
-      <ul>${sectionItems().map((i) => html`<li><a href="${i.href}" ${here(i.key, active)}>${i.label}</a></li>`)}</ul>
+      <ul>${sectionItems().map((i) => html`<li><a href="${i.href}" ${here(i.key, active)}>${i.label}</a></li>`)}<li><a href="/categories">All sections</a></li></ul>
       <h2>The journal</h2>
       <ul>${JOURNAL.concat([{ href: "/contact", label: "Contact", key: "contact" }]).map((j) => html`<li><a href="${j.href}" ${applyMark(j.key)} ${here(j.key, active)}>${j.label}</a></li>`)}</ul>
     </nav>
@@ -113,7 +114,8 @@ function footer() {
       </div>
       <div><h2>Sections</h2><ul>
         <li><a href="/categories/latest">Latest</a></li>
-        ${config.sections.map((s) => html`<li><a href="/categories/${s.slug}">${s.name}</a></li>`)}
+        ${config.sections.filter(inNav).map((s) => html`<li><a href="/categories/${s.slug}">${s.name}</a></li>`)}
+        <li><a href="/categories">All sections</a></li>
       </ul></div>
       <div><h2>The Journal</h2><ul>
         <li><a href="/about-us">About us</a></li>
@@ -159,6 +161,21 @@ function setupDrawer() {
     else if (e.target.closest("[data-drawer-close]")) close();
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("drawer-open")) close(); });
+}
+
+/** When the sections don't fit on one row, the row scrolls sideways and fades at the edge that has more. */
+function setupNavOverflow() {
+  const ul = $(".mainnav ul");
+  if (!ul) return;
+  const sync = () => {
+    ul.classList.toggle("fade-end", ul.scrollWidth - ul.clientWidth - ul.scrollLeft > 2);
+    ul.classList.toggle("fade-start", ul.scrollLeft > 2);
+  };
+  const cur = ul.querySelector('[aria-current="page"]');
+  if (cur && ul.scrollWidth > ul.clientWidth) ul.scrollLeft = cur.offsetLeft - (ul.clientWidth - cur.offsetWidth) / 2;
+  ul.addEventListener("scroll", sync, { passive: true });
+  addEventListener("resize", sync);
+  sync();
 }
 
 function setupCompactBar() {
@@ -266,6 +283,7 @@ export function initChrome({ active } = {}) {
   document.body.insertAdjacentHTML("beforeend", footer().value);
   setupDrawer();
   setupCompactBar();
+  setupNavOverflow();
   setupTheme();
   setupTicker();
   const settings = db.getSettings();

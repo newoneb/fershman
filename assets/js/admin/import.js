@@ -4,6 +4,7 @@ import { html, raw, mount, icon, slugify, safeUrl, truncate, fmtDate, $, $$ } fr
 import { toast } from "../lib/ui.js";
 import { sanitizeHTML } from "../lib/md.js";
 import { friendlyError } from "../data/shared.js";
+import { topicLabel } from "../data/sections.js";
 
 // ---------- helpers ----------
 function loadScript(src, globalName) {
@@ -286,7 +287,7 @@ function setupImporter(host, kind, ctx) {
       const aVal = String(get(r, "author")).split(",")[0].trim();
       const learn = kind === "learn";
       const section = learn ? "learn" : sVal ? sectionMap[sVal] || matchSection(sVal) || config.sections[0].slug : config.sections[0].slug;
-      let topic = learn ? (sVal && sectionMap[sVal]) || null : get(r, "topic") || null;
+      let topic = learn ? (sVal && sectionMap[sVal]) || null : topicLabel(get(r, "topic")) || null;
       if (section === "learn" && !topic) topic = config.learn.topics.find((t) => slugify(t) === slugify(sVal)) || null;
       out.push({
         slug: cleanSlug(get(r, "slug")) || slugify(title),

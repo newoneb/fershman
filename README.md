@@ -136,6 +136,18 @@ launch note and two Learn Economics lessons as drafts.
 | Editor | + edit, schedule and publish; manage authors, portal files and the inbox |
 | Admin | + approve members, see subscribers, change site settings |
 
+### Sections and topic lines
+
+**Admin → Sections** (editors and admins) lists every section: rename one, choose whether it
+appears in the menu, or add a new one. Private Equity comes built in. Every section gets its own
+page at `/categories/…` and appears under All sections, in the menu or not. Editors can also pick
+**＋ New section…** in the article editor's Section list; new sections start outside the menu.
+
+The **topic line** is the small green label above a headline. Topics imported from Framer
+sometimes arrived as web addresses, like `m-a-restructuring`; readers now see the proper name
+(*M&A and Restructuring*), and **Topic lines** on the same page stores the tidy names for good.
+It can also rename or merge topics, and move every story with a topic into a section.
+
 ### Teams and the Marketing team
 
 Teams are the groups on the public Team page (`/team`; `/authors` still works): Leadership,

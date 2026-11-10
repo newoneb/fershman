@@ -404,7 +404,17 @@ export async function createDemoAdapter(config) {
     async deleteMessage(id) { need("editor"); state.messages = state.messages.filter((m) => m.id !== id); save(); },
     async listSubscribers() { need("admin"); return clone(state.subscribers); },
     async deleteSubscriber(id) { need("admin"); state.subscribers = state.subscribers.filter((s) => s.id !== id); save(); },
-    async saveSetting(key, value) { need("admin"); state.settings[key] = clone(value); save(); },
+    async saveSetting(key, value) { need(key === "sections" ? "editor" : "admin"); state.settings[key] = clone(value); save(); },
+    async retopicArticles(changes, { onProgress } = {}) {
+      need("editor");
+      changes.forEach((c, i) => {
+        const a = state.articles.find((x) => x.id === c.id);
+        if (a) { if ("topic" in c) a.topic = c.topic || null; if (c.section) a.section = c.section; a.updated_at = nowISO(); }
+        if (onProgress) onProgress(i + 1, changes.length);
+      });
+      save();
+      return changes.length;
+    },
     async counts() {
       need("writer");
       const arts = state.articles.filter(visibleToMe);

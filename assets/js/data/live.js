@@ -265,6 +265,19 @@ export async function createLiveAdapter(config) {
     async saveSetting(key, value) {
       unwrap(await sb.from("settings").upsert({ key, value }, { onConflict: "key" }));
     },
+    // Bulk-edit topic lines and sections (Admin → Sections).
+    async retopicArticles(changes, { onProgress } = {}) {
+      let done = 0;
+      for (const c of changes) {
+        const row = {};
+        if ("topic" in c) row.topic = c.topic || null;
+        if (c.section) row.section = c.section;
+        unwrap(await sb.from("articles").update(row).eq("id", c.id));
+        done++;
+        if (onProgress) onProgress(done, changes.length);
+      }
+      return done;
+    },
     async counts() {
       const now = nowISO();
       const head = (q) => q.then(({ count, error }) => (error ? 0 : count || 0));
