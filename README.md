@@ -99,7 +99,7 @@ dates, cover images, tables and headings, and old `/learn-economics/…` links r
 What the importer does for you:
 
 - Keeps every article's slug, so old links like `/articles/margin-of-error` keep working.
-  Old `/categories/…`, `/authors/…`, `/learn-economics/…` and `/learn-economics-categories/…` links also work
+  Old `/categories/…`, `/authors/…`, `/learn-economics-pages/…`, `/learn-economics/…` and `/learn-economics-categories/…` links also work
   (see `_redirects`).
 - Converts Framer's formatted text into the editor's format, keeping headings, links,
   lists, images and captions.
@@ -135,6 +135,52 @@ launch note and two Learn Economics lessons as drafts.
 | Writer | + write drafts and submit them for review |
 | Editor | + edit, schedule and publish; manage authors, portal files and the inbox |
 | Admin | + approve members, see subscribers, change site settings |
+
+### Search engines and link previews
+
+Every public page is ready for Google, Bing, Google News and Discover, AI search, and link
+previews on LinkedIn, X, iMessage, Slack and WhatsApp:
+
+- **Server-prepared pages.** `netlify/edge-functions/seo.js` gives each page its real title,
+  description, canonical address, social card (the story's cover image) and structured data before
+  it's sent, plus a readable copy of the content for crawlers that don't run JavaScript. Missing
+  articles, writers and sections return a real 404.
+- **Structured data:** NewsArticle (Article for lessons) with author, dates, section and
+  breadcrumbs; ProfilePage for writers; CollectionPage for sections, the team and the lesson hub;
+  and the journal itself as a news organization.
+- **Feeds:** `/sitemap.xml` (every page, with dates and cover images), `/news-sitemap.xml` (the last
+  two days) and `/feed.xml` (RSS), built live from the database. `robots.txt` points to both sitemaps.
+- **In the editor:** each article has a **Search and social** card with a Google-style preview,
+  an optional search title and description, and a checklist (title and description length, cover
+  image and alt text, length, headings, internal links, address).
+
+**These need Netlify to deploy from GitHub.** Edge functions don't run on drag-and-drop deploys. In
+Netlify open **Site configuration → Build & deploy → Link repository**, pick this repo, leave the build
+command empty and the publish directory as `/`. After that, every upload to GitHub deploys the site.
+
+**Then, once:** add the site to [Google Search Console](https://search.google.com/search-console)
+(Domain property, verified with a DNS record) and submit `https://www.fershman.com/sitemap.xml`
+and `/news-sitemap.xml`; in [Bing Webmaster Tools](https://www.bing.com/webmasters) choose
+**Import from Google Search Console**. To appear in Google News, also add the site in the
+[Publisher Center](https://publishercenter.google.com).
+
+### Story tracker
+
+**Admin → Story tracker** is the shared budget: every story in the works, who's writing and editing
+it, its stage, when the draft is due and when it should run, and whether it needs a meeting. Writers,
+editors and admins all see it. Switch between a **Board** (drag stories between stages) and a
+**List**, and filter to *Mine*, *Needs a meeting*, *Unassigned* or *Done*.
+
+- **Stages:** Pitched → Approved → Drafting → In edit → Ready → Published, or Dropped.
+- **Writers** pitch stories, take an approved story nobody has claimed, and move their own between
+  Drafting and In edit. **Editors** approve pitches, assign writers and editors, set dates, move
+  stories to Ready, Published or Dropped, and delete stories.
+- **Meetings:** tick *Needs a meeting* and add a time and what to discuss. Those stories collect at
+  the top under *Meetings to hold*, and the menu shows how many there are.
+- **Notes** on each story are for questions, sourcing and the edit.
+- **Start the draft** (or link an existing one) opens the article in the editor with the headline
+  and section filled in. The story then follows its article: sent for review moves it to *In edit*,
+  publishing moves it to *Published*.
 
 ### Sections and topic lines
 
@@ -370,6 +416,11 @@ The public pages report to Google Analytics 4 (`G-WQ8MGKY96G`, set as `analytics
 `config.js`; an empty value turns it off). Because pages are built in the browser, the site
 sends each page view itself once the real headline is in place, grouped by section
 ("Content group" in GA). On top of that it records:
+
+**Google Tag Manager** (`GTM-MX4LLTGS`, set as `analytics.gtm` in `config.js`; `""` turns it off)
+loads on the same pages under the same rules: never on the admin, the portal or draft previews, and
+not for visitors who send Global Privacy Control or opted out. If the container also has a GA4 tag
+for `G-WQ8MGKY96G`, remove one of the two, or every page view is counted twice.
 
 | Event | When | Details |
 |---|---|---|

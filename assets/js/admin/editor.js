@@ -5,6 +5,7 @@ import { toast, confirmDialog, openPanel, promptDialog } from "../lib/ui.js";
 import { renderMarkdown, enhance, EMBED_HOSTS } from "../lib/md.js";
 import { articleState, roleAtLeast, friendlyError } from "../data/shared.js";
 import { topicLabel } from "../data/sections.js";
+import { excerpt } from "../lib/schema.js";
 
 /** Editors can add a section without leaving the article. It starts outside the menu; Admin → Sections can add it there. */
 async function addSectionFrom(sel, fallback) {
@@ -39,7 +40,7 @@ export async function editor(ctx, id) {
     return;
   }
   let a = loaded || {
-    id: null, title: "", dek: "", body: "", section: config.sections[0].slug, topic: "", tags: [],
+    id: null, title: "", dek: "", body: "", section: config.sections[0].slug, topic: "", tags: [], seo_title: "", seo_description: "",
     author_id: ctx.session.profile.author_id || null, cover_url: "", cover_alt: "", cover_caption: "", figures: "",
     status: "draft", published_at: null, featured: false, big_read: false, slug: "", updated_at: null,
   };
@@ -107,6 +108,15 @@ export async function editor(ctx, id) {
           <div class="field"><label for="ed-author">Byline</label><select class="select" id="ed-author">${authorOptions}</select></div>
           <div class="field"><label for="ed-tags">Tags</label><input class="input" id="ed-tags" value="${(a.tags || []).join(", ")}" placeholder="Private Equity, Rates"><span class="hint">Separate with commas.</span></div>
         </section>
+        <section class="card side-card seo-card" id="seo-card" aria-labelledby="seo-h">
+          <h2 id="seo-h">Search and social</h2>
+          <div class="seo-preview" aria-label="How this story could look in Google">
+            <span class="seo-p-url"></span><span class="seo-p-title"></span><span class="seo-p-desc"></span>
+          </div>
+          <div class="field"><label for="ed-seo-title">Search title <span class="hint">(optional)</span></label><input class="input" id="ed-seo-title" maxlength="120" value="${a.seo_title || ""}" placeholder="Uses the headline"><span class="hint" data-seo-count="title"></span></div>
+          <div class="field"><label for="ed-seo-desc">Search description <span class="hint">(optional)</span></label><textarea class="textarea" id="ed-seo-desc" rows="3" maxlength="320" placeholder="Uses the standfirst">${a.seo_description || ""}</textarea><span class="hint" data-seo-count="desc"></span></div>
+          <ul class="seo-checks" id="seo-checks" aria-label="Search checklist"></ul>
+        </section>
         <section class="card side-card">
           <h2>Cover image</h2>
           <div class="cover-preview" id="ed-cover-prev"></div>
@@ -143,7 +153,7 @@ export async function editor(ctx, id) {
       section: v("ed-section"), topic: v("ed-topic") || null, author_id: v("ed-author") || null,
       tags: v("ed-tags").split(",").map((t) => t.trim()).filter(Boolean),
       cover_url: v("ed-cover") || null, cover_alt: v("ed-alt") || null, cover_caption: v("ed-caption") || null,
-      figures: v("ed-figures") || null, slug: slugify(v("ed-slug")) || slugify(title.value) || "",
+      figures: v("ed-figures") || null, seo_title: v("ed-seo-title") || null, seo_description: v("ed-seo-desc") || null, slug: slugify(v("ed-slug")) || slugify(title.value) || "",
     };
     if (canPublish) {
       data.featured = $id("ed-featured").checked;
@@ -246,7 +256,7 @@ export async function editor(ctx, id) {
           const d = saved.data;
           title.value = d.title || ""; dek.value = d.dek || ""; body.value = d.body || "";
           const set = (x, val) => { const el = $id(x); if (el && val !== undefined && val !== null) el.value = Array.isArray(val) ? val.join(", ") : val; };
-          set("ed-section", d.section); set("ed-topic", d.topic); set("ed-author", d.author_id); set("ed-tags", d.tags);
+          set("ed-section", d.section); set("ed-topic", d.topic); set("ed-author", d.author_id); set("ed-tags", d.tags); set("ed-seo-title", d.seo_title); set("ed-seo-desc", d.seo_description);
           set("ed-cover", d.cover_url); set("ed-alt", d.cover_alt); set("ed-caption", d.cover_caption); set("ed-figures", d.figures); set("ed-slug", d.slug);
           [title, dek].forEach(autosize); drawCover(); drawPreview(); drawCounts(); markDirty();
           mount($id("ed-restore"), "");
@@ -376,6 +386,39 @@ export async function editor(ctx, id) {
   }
 
   // ---- Events
+  // ---- Search and social: a Google-style preview and a checklist that updates as you write.
+  const val = (x) => ($id(x) ? $id(x).value.trim() : "");
+  const drawSeo = () => {
+    const card = $id("seo-card");
+    if (!card) return;
+    const t = val("ed-seo-title") || title.value.trim();
+    const d = val("ed-seo-desc") || dek.value.trim() || excerpt(body.value, 160);
+    const slug = slugify(val("ed-slug") || title.value);
+    const lesson = val("ed-section") === "learn";
+    const words = wordCount(body.value);
+    $(".seo-p-url", card).textContent = `${String(config.site.url || location.origin).replace(/^https?:\/\//, "")} › articles › ${slug || "…"}`;
+    $(".seo-p-title", card).textContent = t.length > 62 ? `${t.slice(0, 60).trim()}…` : t || "Your headline";
+    $(".seo-p-desc", card).textContent = d.length > 160 ? `${d.slice(0, 157).trim()}…` : d || "Your standfirst appears here.";
+    $('[data-seo-count="title"]', card).textContent = `${t.length} characters${t.length > 60 ? ". Google shows about 60" : ""}`;
+    $('[data-seo-count="desc"]', card).textContent = `${d.length} characters${d.length > 160 ? ". Google shows about 155" : ""}`;
+    const checks = [
+      [t.length >= 20 && t.length <= 65, t.length > 65 ? "Shorten the headline, or add a search title of 60 characters or fewer." : t.length < 20 ? "Make the title say what the story is about." : "Title fits in search results."],
+      [d.length >= 70 && d.length <= 160, d.length < 70 ? "Write a standfirst (or search description) of one or two sentences." : d.length > 160 ? "Trim the description to about 155 characters." : "Description fits in search results."],
+      [Boolean(val("ed-cover")), val("ed-cover") ? "Cover image set for search, Google Discover and link previews." : "Add a cover image, so search, Discover and link previews show this story's own picture."],
+      [!val("ed-cover") || Boolean(val("ed-alt")), "Describe the cover image in Alt text."],
+      [lesson || words >= 300, `${words} words${!lesson && words < 300 ? ". Stories under 300 words rarely rank." : "."}`],
+      [words < 700 || /^#{2,3}\s/m.test(body.value), "Long stories read and rank better with section headings."],
+      [/\]\((?:https?:\/\/(?:www\.)?fershman\.com)?\/(?:articles|learn|categories)\//i.test(body.value), "Link to at least one earlier Fershman story."],
+      [slug.length > 0 && slug.length <= 75, "Keep the web address short and readable."],
+      [Boolean(val("ed-topic")) || lesson, "Add a topic line."],
+    ];
+    const done = checks.filter(([ok]) => ok).length;
+    mount($id("seo-checks"), html`<li class="seo-score"><strong>${done} of ${checks.length}</strong> search checks done</li>${checks.map(([ok, text]) => html`<li class="${ok ? "is-ok" : "is-todo"}">${text}</li>`)}`);
+  };
+  const onSeo = debounce(drawSeo, 200);
+  ctx.el.addEventListener("input", onSeo);
+  ctx.el.addEventListener("change", onSeo);
+  drawSeo();
   const onInput = debounce(() => { drawPreview(); drawCounts(); }, 180);
   ctx.el.addEventListener("input", (e) => {
     if (e.target === body) onInput();

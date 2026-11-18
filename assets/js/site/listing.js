@@ -6,6 +6,7 @@ import { track } from "./analytics.js";
 import { story, articleUrl, sectionUrl, avatar, authorUrl, skeletonCards, emptyState, errorState } from "./cards.js";
 import { teamList, authorTeams, isMarketing, isHouseByline, mergeRecruiting } from "../data/shared.js";
 import { prettify } from "../data/sections.js";
+import { graph, personLd, organizationLd, absolute } from "../lib/schema.js";
 
 const page = document.body.dataset.page;
 const main = $("#main");
@@ -15,7 +16,7 @@ const loading = html`<div class="container"><div class="page-head"><div class="s
 mount(main, loading);
 
 function notFound(title, text) {
-  setMeta({ title });
+  setMeta({ title, robots: "noindex, follow" });
   mount(main, html`<div class="container notfound"><h1>${title}</h1><p>${text}</p><div class="actions"><a class="btn btn-accent" href="/">Go to the front page</a><a class="btn" href="/categories">All categories</a></div></div>`);
 }
 
@@ -119,7 +120,7 @@ function chatFor(p, rc) {
 
 async function authorsPage() {
   initChrome({ active: "team" });
-  setMeta({ title: "Team", description: "The students who write, edit and run The Fershman Journal." });
+  setMeta({ title: "Team", url: "/team", description: "The students who write, edit and run The Fershman Journal." });
   const shared = chromeData() || {};
   const [authors, settings] = await Promise.all([db.listAuthors(), Promise.resolve(shared.settings || db.getSettings()).catch(() => ({}))]);
   const rc = mergeRecruiting(settings && settings.recruiting);
@@ -214,7 +215,7 @@ async function authorPage() {
   const slug = routeParam("/authors");
   const author = slug ? await db.getAuthor(slug) : null;
   if (!author) return notFound("Author not found", "We couldn't find that writer. See everyone on the team page.");
-  setMeta({ title: author.name, description: author.bio || `${author.name}${author.role_title ? `, ${author.role_title}` : ""} at The Fershman Journal.` });
+  setMeta({ title: author.name, url: absolute(config.site, authorUrl(author)), type: "profile", image: author.avatar_url || undefined, ld: graph(personLd(author, { site: config.site, url: absolute(config.site, authorUrl(author)) }), organizationLd(config.site)), description: author.bio || `${author.name}${author.role_title ? `, ${author.role_title}` : ""} at The Fershman Journal.` });
   const query = (offset, limit) => db.listArticles({ authorId: author.id, offset, limit });
   const rows = await query(0, PAGE);
   mount(main, html`<div class="container page">
@@ -279,7 +280,7 @@ function trackSearch(term, results) {
 
 async function searchPage() {
   initChrome({ active: null });
-  setMeta({ title: "Search" });
+  setMeta({ title: "Search", robots: "noindex, follow" });
   const initial = params().get("q") || "";
   mount(main, html`<div class="container-narrow page" style="padding-top:clamp(28px,5vw,56px)">
     <form class="search-box" role="search" id="search-form">

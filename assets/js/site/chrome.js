@@ -3,6 +3,7 @@ import { db, config, LIVE } from "../data/db.js";
 import { html, raw, mount, icon, fmtLongDate, hash, coverArt, safeUrl, $, $$ } from "../lib/util.js";
 import { setTheme, getTheme, installImageFallbacks, copyText, toast } from "../lib/ui.js";
 import { mergeRecruiting, applicationStatus } from "../data/shared.js";
+import { defaultImage, ldJson } from "../lib/schema.js";
 import { pageView } from "./analytics.js";
 import { recruitingPopup } from "./recruit-popup.js";
 
@@ -307,25 +308,43 @@ export function initChrome({ active } = {}) {
   });
 }
 
-export function setMeta({ title, description, image, url, analytics } = {}) {
-  if (title) document.title = title === S.name ? title : `${title} — ${S.name}`;
+/**
+ * Title, description, canonical address, social cards, robots and structured data for the page.
+ * The server sends the same tags first (netlify/edge-functions/seo.js); this keeps them right
+ * for search engines that render the page and when the edge function isn't running.
+ */
+export function setMeta({ title, fullTitle, description, image, imageAlt, url, type = "website", robots, ld, analytics } = {}) {
+  if (fullTitle) document.title = fullTitle;
+  else if (title) document.title = title === S.name ? title : `${title} — ${S.name}`;
   pageView(analytics);
-  const setTag = (selector, attr, value) => {
+  const base = String(S.url || location.origin).replace(/\/$/, "");
+  const canonical = !url ? base + location.pathname : /^https?:/i.test(url) ? String(url).replace(location.origin, base) : base + url;
+  const setTag = (attr, key, value) => {
     if (!value) return;
-    let el = document.head.querySelector(selector);
-    if (!el) {
-      el = document.createElement("meta");
-      const [k, v] = selector.replace(/^meta\[|\]$/g, "").split("=");
-      el.setAttribute(k, v.replace(/"/g, ""));
-      document.head.append(el);
-    }
-    el.setAttribute(attr, value);
+    let el = document.head.querySelector(`meta[${attr}="${key}"]`);
+    if (!el) { el = document.createElement("meta"); el.setAttribute(attr, key); document.head.append(el); }
+    el.setAttribute("content", value);
   };
-  setTag('meta[name="description"]', "content", description);
-  setTag('meta[property="og:title"]', "content", title);
-  setTag('meta[property="og:description"]', "content", description);
-  setTag('meta[property="og:image"]', "content", image);
-  setTag('meta[property="og:url"]', "content", url || location.href);
-  setTag('meta[name="twitter:title"]', "content", title);
-  setTag('meta[name="twitter:description"]', "content", description);
+  const pageTitle = document.title;
+  const img = image || defaultImage(S);
+  setTag("name", "description", description);
+  if (robots) setTag("name", "robots", robots);
+  setTag("property", "og:type", type);
+  setTag("property", "og:title", pageTitle);
+  setTag("property", "og:description", description);
+  setTag("property", "og:url", canonical);
+  setTag("property", "og:image", img);
+  setTag("property", "og:image:alt", imageAlt || title || S.name);
+  setTag("name", "twitter:card", "summary_large_image");
+  setTag("name", "twitter:title", pageTitle);
+  setTag("name", "twitter:description", description);
+  setTag("name", "twitter:image", img);
+  let link = document.head.querySelector('link[rel="canonical"]');
+  if (!link) { link = document.createElement("link"); link.rel = "canonical"; document.head.append(link); }
+  link.href = canonical;
+  if (ld) {
+    let s = document.getElementById("ld-page");
+    if (!s) { s = document.createElement("script"); s.type = "application/ld+json"; s.id = "ld-page"; document.head.append(s); }
+    s.textContent = ldJson(ld);
+  }
 }

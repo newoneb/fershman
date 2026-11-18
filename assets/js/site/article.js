@@ -3,6 +3,7 @@ import { html, raw, mount, fmtDate, fmtDateTime, readMinutes, routeParam, params
 import { renderMarkdown, enhance } from "../lib/md.js";
 import { isPublic, articleState, parseFigures } from "../data/shared.js";
 import { initChrome, setMeta } from "./chrome.js";
+import { graph, articleLd, organizationLd, searchTitle, searchDescription, absolute } from "../lib/schema.js";
 import { trackReading } from "./analytics.js";
 import { story, kicker, avatar, authorUrl, articleUrl, sectionUrl, sectionName, shareButtons, emptyState, errorState } from "./cards.js";
 
@@ -25,7 +26,7 @@ initChrome({ active: article ? article.section : null });
 if (loadError) {
   mount(main, html`<div class="container">${errorState(loadError)}</div>`);
 } else if (!article) {
-  setMeta({ title: "Article not found" });
+  setMeta({ title: "Article not found", robots: "noindex, follow" });
   mount(main, html`<div class="container notfound">
     <h1>We couldn't find that story</h1>
     <p>It may have moved, or the link may be mistyped. Try searching the archive instead.</p>
@@ -44,8 +45,12 @@ function renderArticle(a) {
     article_section: a.section === "learn" ? config.learn.name : sectionName(a.section),
     article_author: a.author ? a.author.name : undefined,
   };
+  const pageUrl = absolute(config.site, articleUrl(a));
+  const sec = a.section === "learn" ? { name: config.learn.name, path: "/learn" } : sectionName(a.section) ? { name: sectionName(a.section), path: sectionUrl(a.section) } : null;
   setMeta({
-    title: a.title, description: a.dek || truncate(plainText(a.body), 180), image: cover || undefined, url: location.origin + articleUrl(a),
+    title: searchTitle(a), description: searchDescription(a), image: cover || undefined, imageAlt: a.cover_alt || a.title, url: pageUrl, type: "article",
+    robots: isPublic(a) ? undefined : "noindex, nofollow",
+    ld: graph(articleLd(a, { site: config.site, url: pageUrl, image: cover || undefined, section: sec }), organizationLd(config.site)),
     analytics: { content_group: tracked.article_section, ...tracked },
   });
 
@@ -78,7 +83,7 @@ function renderArticle(a) {
         </header>
         ${cover || a.cover_caption ? html`
           <figure class="article-cover">
-            <div class="media">${cover ? html`<img src="${cover}" alt="${a.cover_alt || ""}" fetchpriority="high" data-seed="${a.slug}" data-section="${a.section}" itemprop="image">` : coverArt(a.slug, a.section)}</div>
+            <div class="media">${cover ? html`<img src="${cover}" alt="${a.cover_alt || a.title}" fetchpriority="high" data-seed="${a.slug}" data-section="${a.section}" itemprop="image">` : coverArt(a.slug, a.section)}</div>
             ${a.cover_caption ? html`<figcaption>${a.cover_caption}</figcaption>` : ""}
           </figure>` : ""}
         <div class="article-layout">

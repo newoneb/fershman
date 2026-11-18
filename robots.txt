@@ -1,4 +1,10 @@
 User-agent: *
+Allow: /
 Disallow: /admin/
 Disallow: /portal/
 Disallow: /supabase/
+Disallow: /tools/
+Disallow: /*?preview=
+
+Sitemap: https://www.fershman.com/sitemap.xml
+Sitemap: https://www.fershman.com/news-sitemap.xml

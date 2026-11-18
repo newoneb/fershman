@@ -116,6 +116,16 @@
       "source": "/learn-economics/:slug",
       "destination": "/articles/:slug",
       "permanent": true
+    },
+    {
+      "source": "/learn-economics-pages",
+      "destination": "/learn",
+      "permanent": true
+    },
+    {
+      "source": "/learn-economics-pages/:slug",
+      "destination": "/articles/:slug",
+      "permanent": true
     }
   ],
   "headers": [

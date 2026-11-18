@@ -9,6 +9,7 @@ const root = document.getElementById("app");
 const NAV = [
   { key: "dashboard", label: "Dashboard", icon: "home", min: "writer" },
   { key: "articles", label: "Articles", icon: "doc", min: "writer", badge: (c) => c.review },
+  { key: "tracker", label: "Story tracker", icon: "grid", min: "writer", badge: (c) => c.trackerMeetings },
   { key: "authors", label: "Authors", icon: "users", min: "editor" },
   { key: "sections", label: "Sections", icon: "folder", min: "editor" },
   { key: "portal", label: "Member portal", icon: "folder", min: "editor" },
@@ -130,6 +131,9 @@ async function route() {
     if (key === "articles" && parts[1]) {
       const m = await import("./editor.js");
       await m.editor(ctx, parts[1]);
+    } else if (key === "tracker") {
+      const m = await import("./tracker.js");
+      await m.tracker(ctx);
     } else if (key === "recruiting") {
       const m = await import("./recruiting.js");
       await m.recruiting(ctx);

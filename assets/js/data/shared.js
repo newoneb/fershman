@@ -3,7 +3,7 @@
 export const ARTICLE_FIELDS = [
   "slug", "title", "dek", "body", "section", "topic", "tags", "author_id",
   "cover_url", "cover_alt", "cover_caption", "figures", "status", "published_at",
-  "featured", "big_read",
+  "featured", "big_read", "seo_title", "seo_description",
 ];
 export const CARD_COLUMNS =
   "id,slug,title,dek,section,topic,tags,cover_url,cover_alt,cover_caption,status,published_at,featured,big_read,author_id,view_count,created_by,created_at,updated_at";
@@ -59,7 +59,7 @@ export function pick(obj, keys) {
 export function cleanArticle(a) {
   const row = pick(a, ARTICLE_FIELDS);
   if (row.tags && !Array.isArray(row.tags)) row.tags = String(row.tags).split(",").map((t) => t.trim()).filter(Boolean);
-  for (const k of ["dek", "topic", "cover_url", "cover_alt", "cover_caption", "figures"]) if (row[k] === "") row[k] = null;
+  for (const k of ["dek", "topic", "cover_url", "cover_alt", "cover_caption", "figures", "seo_title", "seo_description"]) if (row[k] === "") row[k] = null;
   if (row.author_id === "") row.author_id = null;
   return row;
 }
@@ -399,3 +399,19 @@ export function withReviewStats(a, reviews = []) {
   const scores = reviews.map((r) => Number(r.score)).filter(Boolean);
   return { ...a, review_count: reviews.length, review_avg: scores.length ? Math.round((scores.reduce((x, y) => x + y, 0) / scores.length) * 10) / 10 : null };
 }
+
+// ---------------------------------------------------------------- Story tracker
+export const TRACKER_STAGES = [
+  { key: "pitch", label: "Pitched", hint: "Ideas waiting for an editor's yes." },
+  { key: "approved", label: "Approved", hint: "Green-lit. Needs a writer, or a start." },
+  { key: "drafting", label: "Drafting", hint: "Being written." },
+  { key: "editing", label: "In edit", hint: "With an editor." },
+  { key: "ready", label: "Ready", hint: "Edited, waiting for its slot." },
+  { key: "published", label: "Published", hint: "Out in the world." },
+  { key: "killed", label: "Dropped", hint: "Not going ahead, for now." },
+];
+export const TRACKER_ACTIVE = ["pitch", "approved", "drafting", "editing", "ready"];
+/** The stages writers can move their own stories between. Editors can use any. */
+export const TRACKER_WRITER_STAGES = ["drafting", "editing"];
+export const TRACKER_PRIORITY = { high: "High", normal: "Normal", low: "Low" };
+export const TRACKER_FIELDS = ["title", "angle", "section", "priority", "stage", "writer_id", "editor_id", "due_on", "publish_on", "meeting_needed", "meeting_at", "meeting_note", "article_id"];

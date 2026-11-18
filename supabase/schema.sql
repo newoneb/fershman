@@ -72,6 +72,9 @@ create table if not exists public.articles (
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
+-- Optional search title and description, set in the editor's Search and social card.
+alter table public.articles add column if not exists seo_title       text check (char_length(seo_title) <= 120);
+alter table public.articles add column if not exists seo_description text check (char_length(seo_description) <= 320);
 create index if not exists articles_public_idx  on public.articles (status, published_at desc);
 create index if not exists articles_section_idx on public.articles (section, published_at desc);
 create index if not exists articles_author_idx  on public.articles (author_id);
@@ -203,6 +206,41 @@ create table if not exists public.application_reviews (
 );
 create index if not exists application_reviews_app_idx on public.application_reviews (application_id);
 
+-- ---------------------------------------------------------------- Story tracker
+-- The editorial budget in Admin → Story tracker: who's writing what, where it stands, what needs a meeting.
+create table if not exists public.tracker_items (
+  id             uuid primary key default gen_random_uuid(),
+  title          text not null check (char_length(title) between 1 and 300),
+  angle          text check (char_length(angle) <= 4000),
+  section        text,
+  priority       text not null default 'normal' check (priority in ('low', 'normal', 'high')),
+  stage          text not null default 'pitch'
+                 check (stage in ('pitch', 'approved', 'drafting', 'editing', 'ready', 'published', 'killed')),
+  writer_id      uuid references public.authors (id) on delete set null,
+  editor_id      uuid references public.authors (id) on delete set null,
+  due_on         date,
+  publish_on     date,
+  meeting_needed boolean not null default false,
+  meeting_at     timestamptz,
+  meeting_note   text check (char_length(meeting_note) <= 2000),
+  article_id     uuid references public.articles (id) on delete set null,
+  created_by     uuid default auth.uid() references public.profiles (id) on delete set null,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index if not exists tracker_items_stage_idx on public.tracker_items (stage, due_on);
+create index if not exists tracker_items_article_idx on public.tracker_items (article_id);
+
+create table if not exists public.tracker_comments (
+  id          uuid primary key default gen_random_uuid(),
+  item_id     uuid not null references public.tracker_items (id) on delete cascade,
+  user_id     uuid default auth.uid() references public.profiles (id) on delete set null,
+  author_name text not null default '',
+  body        text not null check (char_length(body) between 1 and 4000),
+  created_at  timestamptz not null default now()
+);
+create index if not exists tracker_comments_item_idx on public.tracker_comments (item_id, created_at);
+
 -- ---------------------------------------------------------------- Role helpers
 -- SECURITY DEFINER so they can read profiles even though callers can't read others' rows.
 
@@ -252,7 +290,7 @@ $$;
 drop trigger if exists articles_touch on public.articles;
 create trigger articles_touch
   before update of slug, title, dek, body, section, topic, tags, author_id, cover_url, cover_alt,
-                   cover_caption, figures, status, published_at, featured, big_read
+                   cover_caption, figures, status, published_at, featured, big_read, seo_title, seo_description
   on public.articles for each row execute function public.touch_updated_at();
 drop trigger if exists authors_touch on public.authors;
 create trigger authors_touch before update on public.authors for each row execute function public.touch_updated_at();
@@ -552,6 +590,82 @@ drop trigger if exists application_reviews_stamp on public.application_reviews;
 create trigger application_reviews_stamp before insert on public.application_reviews
   for each row execute function public.stamp_review();
 
+-- ---------------------------------------------------------------- Story tracker rules
+
+create or replace function public.my_author_id() returns uuid
+language sql stable security definer set search_path = public as $$
+  select author_id from public.profiles where id = auth.uid();
+$$;
+
+-- Writers pitch, take approved stories and move their own between Drafting and In edit.
+-- Editors approve, assign, schedule and drop stories.
+create or replace function public.guard_tracker() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  mine uuid := public.my_author_id();
+begin
+  new.updated_at := now();
+  if auth.uid() is null or public.is_editor() then
+    if tg_op = 'INSERT' then new.created_by := coalesce(new.created_by, auth.uid()); end if;
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.created_by := auth.uid();
+    new.stage := 'pitch';
+    new.editor_id := null;
+    if new.writer_id is distinct from mine then new.writer_id := null; end if;
+    return new;
+  end if;
+  new.created_by := old.created_by;
+  new.created_at := old.created_at;
+  new.editor_id := old.editor_id;
+  if new.writer_id is distinct from old.writer_id
+     and not (old.writer_id is null and old.stage <> 'pitch' and new.writer_id = mine) then
+    new.writer_id := old.writer_id;
+  end if;
+  if new.stage is distinct from old.stage
+     and (old.stage = 'pitch' or new.stage not in ('drafting', 'editing')) then
+    raise exception 'Editors approve pitches and move stories to Ready, Published or Dropped.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists tracker_guard on public.tracker_items;
+create trigger tracker_guard before insert or update on public.tracker_items
+  for each row execute function public.guard_tracker();
+
+create or replace function public.stamp_tracker_comment() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is not null then
+    new.user_id := auth.uid();
+    new.author_name := coalesce((select nullif(full_name, '') from public.profiles where id = auth.uid()),
+                                (select email from public.profiles where id = auth.uid()), '');
+  end if;
+  new.created_at := now();
+  return new;
+end;
+$$;
+drop trigger if exists tracker_comments_stamp on public.tracker_comments;
+create trigger tracker_comments_stamp before insert on public.tracker_comments
+  for each row execute function public.stamp_tracker_comment();
+
+-- A story follows its article: sent for review → In edit, published → Published.
+create or replace function public.sync_tracker_from_article() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.status = 'published' then
+    update public.tracker_items set stage = 'published' where article_id = new.id and stage not in ('published', 'killed');
+  elsif new.status = 'review' then
+    update public.tracker_items set stage = 'editing' where article_id = new.id and stage in ('approved', 'drafting');
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists articles_sync_tracker on public.articles;
+create trigger articles_sync_tracker after insert or update of status on public.articles
+  for each row execute function public.sync_tracker_from_article();
+
 -- ---------------------------------------------------------------- Functions for the site
 
 -- Full-text search over published articles (runs with the caller's permissions).
@@ -657,6 +771,8 @@ alter table public.info_sessions         enable row level security;
 alter table public.session_registrations enable row level security;
 alter table public.applications          enable row level security;
 alter table public.application_reviews   enable row level security;
+alter table public.tracker_items         enable row level security;
+alter table public.tracker_comments      enable row level security;
 
 -- authors
 drop policy if exists "Authors are public" on public.authors;
@@ -800,6 +916,27 @@ drop policy if exists "Reviewers remove their reviews" on public.application_rev
 create policy "Reviewers remove their reviews" on public.application_reviews for delete to authenticated
   using (reviewer_id = auth.uid() or public.is_admin());
 
+-- story tracker: writers, editors and admins see the whole budget
+drop policy if exists "Writers see the tracker" on public.tracker_items;
+create policy "Writers see the tracker" on public.tracker_items for select to authenticated using (public.is_writer());
+drop policy if exists "Writers pitch stories" on public.tracker_items;
+create policy "Writers pitch stories" on public.tracker_items for insert to authenticated with check (public.is_writer());
+drop policy if exists "Writers update their stories" on public.tracker_items;
+create policy "Writers update their stories" on public.tracker_items for update to authenticated
+  using (public.is_editor() or (public.is_writer() and (created_by = auth.uid() or writer_id = public.my_author_id()
+         or (writer_id is null and stage <> 'pitch'))))
+  with check (public.is_writer());
+drop policy if exists "Editors and pitchers delete stories" on public.tracker_items;
+create policy "Editors and pitchers delete stories" on public.tracker_items for delete to authenticated
+  using (public.is_editor() or (created_by = auth.uid() and stage = 'pitch'));
+drop policy if exists "Writers read tracker notes" on public.tracker_comments;
+create policy "Writers read tracker notes" on public.tracker_comments for select to authenticated using (public.is_writer());
+drop policy if exists "Writers add tracker notes" on public.tracker_comments;
+create policy "Writers add tracker notes" on public.tracker_comments for insert to authenticated with check (public.is_writer());
+drop policy if exists "People remove their tracker notes" on public.tracker_comments;
+create policy "People remove their tracker notes" on public.tracker_comments for delete to authenticated
+  using (user_id = auth.uid() or public.is_editor());
+
 -- ---------------------------------------------------------------- Privileges
 -- RLS decides which rows; these grants decide which operations are possible at all.
 
@@ -807,11 +944,12 @@ grant usage on schema public to anon, authenticated;
 grant select on public.authors, public.articles, public.settings to anon;
 grant insert on public.messages, public.subscribers to anon;
 revoke all on public.recruiting_periods, public.info_sessions, public.session_registrations,
-  public.applications, public.application_reviews from anon;
+  public.applications, public.application_reviews, public.tracker_items, public.tracker_comments from anon;
 grant select (id, title, starts_on, ends_on, decisions_on) on public.recruiting_periods to anon;
 grant select, insert, update, delete on public.authors, public.articles, public.portal_items,
   public.messages, public.subscribers, public.settings, public.recruiting_periods, public.info_sessions,
-  public.session_registrations, public.applications, public.application_reviews to authenticated;
+  public.session_registrations, public.applications, public.application_reviews,
+  public.tracker_items, public.tracker_comments to authenticated;
 
 -- People may edit their own name; only admins (enforced by trigger) change role or byline.
 revoke all on public.profiles from anon, authenticated;

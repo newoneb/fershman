@@ -215,7 +215,7 @@ async function privacy() {
 }
 
 function notFound() {
-  setMeta({ title: "Page not found" });
+  setMeta({ title: "Page not found", robots: "noindex, follow" });
   mount(main, html`<div class="container notfound">
     <h1>This page isn't here</h1>
     <p>The link may be old or mistyped. If you followed a link to a story, try searching for it.</p>

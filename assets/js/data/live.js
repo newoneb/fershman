@@ -4,7 +4,7 @@ import { uid, slugify } from "../lib/util.js";
 import {
   normalizeAuthor, BYLINE_FIELDS,
   CARD_COLUMNS, SETTINGS_DEFAULTS, cleanArticle, sortAuthors, pick, AUTHOR_FIELDS,
-  safeFileName, guessMime, roleAtLeast, withReviewStats,
+  safeFileName, guessMime, roleAtLeast, withReviewStats, TRACKER_FIELDS,
 } from "./shared.js";
 
 function loadScript(src) {
@@ -293,8 +293,9 @@ export async function createLiveAdapter(config) {
         roleAtLeast(r, "editor") ? head(sb.from("messages").select("id", { count: "exact", head: true }).eq("status", "new")) : 0,
         roleAtLeast(r, "admin") ? head(sb.from("profiles").select("id", { count: "exact", head: true }).eq("role", "pending")) : 0,
       ]);
+      const trackerMeetings = roleAtLeast(r, "writer") ? await head(sb.from("tracker_items").select("id", { count: "exact", head: true }).eq("meeting_needed", true).not("stage", "in", "(published,killed)")) : 0;
       const newApplications = s && s.recruiter ? await head(sb.from("applications").select("id", { count: "exact", head: true }).eq("status", "submitted")) : 0;
-      return { published, scheduled, review, drafts, subscribers, newMessages, pending, newApplications };
+      return { published, scheduled, review, drafts, subscribers, newMessages, pending, newApplications , trackerMeetings };
     },
 
     // ---------- Media (public bucket) ----------
@@ -429,6 +430,25 @@ export async function createLiveAdapter(config) {
     async deleteReview(id) {
       unwrap(await sb.from("application_reviews").delete().eq("id", id));
     },
+
+    // ---------- Story tracker ----------
+    async listTracker() {
+      const rows = unwrap(await sb.from("tracker_items").select("*, tracker_comments(count)").order("created_at", { ascending: false }).limit(1000));
+      return (rows || []).map(({ tracker_comments: c, ...r }) => ({ ...r, comment_count: (c && c[0] && c[0].count) || 0 }));
+    },
+    async saveTrackerItem(input, id) {
+      const row = pick(input, TRACKER_FIELDS);
+      const q = id ? sb.from("tracker_items").update(row).eq("id", id) : sb.from("tracker_items").insert(row);
+      return unwrap(await q.select().single());
+    },
+    async deleteTrackerItem(id) { unwrap(await sb.from("tracker_items").delete().eq("id", id)); },
+    async listTrackerComments(itemId) {
+      return unwrap(await sb.from("tracker_comments").select("*").eq("item_id", itemId).order("created_at")) || [];
+    },
+    async addTrackerComment(itemId, body) {
+      return unwrap(await sb.from("tracker_comments").insert({ item_id: itemId, body }).select().single());
+    },
+    async deleteTrackerComment(id) { unwrap(await sb.from("tracker_comments").delete().eq("id", id)); },
 
     async updateMyByline(patch) {
       const s = await api.getSession();

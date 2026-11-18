@@ -5,6 +5,7 @@ import {
   normalizeAuthor, authorTeams, BYLINE_FIELDS, MARKETING,
   isPublic, byDateDesc, sortAuthors, SETTINGS_DEFAULTS, cleanArticle, roleAtLeast,
   articleState, pick, AUTHOR_FIELDS, guessMime, mergeRecruiting, applicationStatus, withReviewStats,
+  TRACKER_FIELDS, TRACKER_WRITER_STAGES,
 } from "./shared.js";
 
 const DB_KEY = "fershman-demo-db-v1";
@@ -120,6 +121,27 @@ export async function createDemoAdapter(config) {
     state.reviews = [
       { id: uid(), application_id: daniel.id, reviewer_id: null, reviewer_name: "Shaurya Vohra", score: 4, recommendation: "advance", note: "Strong pitch. The sourcing needs work, which editing can fix.", created_at: ago(2) },
       { id: uid(), application_id: priya.id, reviewer_id: null, reviewer_name: "Veronika Chizhevskaia", score: 5, recommendation: "advance", note: "Clear writer. Already asks who pays and who benefits.", created_at: ago(5) },
+    ];
+    writeLS(DB_KEY, state);
+  }
+  if (!state.tracker) {
+    // A sample story budget for Admin → Story tracker.
+    const au = (name) => (state.authors.find((a) => a.name.startsWith(name)) || {}).id || null;
+    const inDays = (n) => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+    const at = (n, h) => { const x = new Date(); x.setDate(x.getDate() + n); x.setHours(h, 0, 0, 0); return x.toISOString(); };
+    const item = (o) => ({ id: uid(), angle: "", section: "markets", priority: "normal", stage: "pitch", writer_id: null, editor_id: null, due_on: null, publish_on: null,
+      meeting_needed: false, meeting_at: null, meeting_note: "", article_id: null, created_by: null, created_at: nowISO(), updated_at: nowISO(), ...o });
+    state.tracker = [
+      item({ title: "How private credit is pricing regional bank risk (sample)", angle: "Direct lenders now quote spreads on loans banks used to own. What their pricing says about bank balance sheets.", section: "markets", meeting_needed: true, meeting_note: "Markets or Business & Deals? Who has a source at a direct lender?" }),
+      item({ title: "Japan's yield curve, one year after control ended (sample)", angle: "What happened to JGB yields, the yen and Japanese banks once the Bank of Japan let go.", section: "policy", stage: "approved", priority: "high", editor_id: au("Veronika"), publish_on: inDays(9) }),
+      item({ title: "Intertek's breakup math (sample)", angle: "Sum-of-the-parts versus EQT's cash offer, segment by segment.", section: "business-deals", stage: "drafting", writer_id: au("Shaurya Grover"), editor_id: au("Shaurya Vohra"), due_on: inDays(2), publish_on: inDays(5) }),
+      item({ title: "What the Fed's balance-sheet runoff means for mortgages (sample)", angle: "Quantitative tightening, the MBS spread and what buyers pay.", section: "policy", stage: "editing", writer_id: au("Cayden"), editor_id: au("Veronika"), due_on: inDays(-1), publish_on: inDays(3),
+        meeting_needed: true, meeting_at: at(1, 16), meeting_note: "Walk through the charts and the second section's sourcing." }),
+      item({ title: "SMBC and Jefferies: the trans-Pacific bet (sample)", section: "opinion", stage: "ready", writer_id: au("Cayden"), editor_id: au("Eliazar"), publish_on: inDays(1) }),
+    ];
+    state.trackerComments = [
+      { id: uid(), item_id: state.tracker[3].id, user_id: null, author_name: "Veronika Chizhevskaia", body: "Strong draft. The second section needs a source for the MBS spread figure.", created_at: nowISO() },
+      { id: uid(), item_id: state.tracker[2].id, user_id: null, author_name: "Shaurya Vohra", body: "Keep it under 1,200 words; the table can carry the segment numbers.", created_at: nowISO() },
     ];
     writeLS(DB_KEY, state);
   }
@@ -425,6 +447,7 @@ export async function createDemoAdapter(config) {
         newMessages: roleAtLeast(role(), "editor") ? state.messages.filter((m) => m.status === "new").length : 0,
         pending: roleAtLeast(role(), "admin") ? state.profiles.filter((p) => p.role === "pending").length : 0,
         newApplications: isRecruiter() ? state.applications.filter((a) => a.status === "submitted").length : 0,
+        trackerMeetings: roleAtLeast(role(), "writer") ? state.tracker.filter((t) => t.meeting_needed && !["published", "killed"].includes(t.stage)).length : 0,
       };
     },
 
@@ -659,6 +682,68 @@ export async function createDemoAdapter(config) {
       const r = state.reviews.find((x) => x.id === id);
       if (r && r.reviewer_id !== me().id && !roleAtLeast(role(), "admin")) throw denied();
       state.reviews = state.reviews.filter((x) => x.id !== id);
+      save();
+    },
+
+    // ---------- Story tracker (mirrors guard_tracker() in schema.sql) ----------
+    async listTracker() {
+      need("writer");
+      return state.tracker.map((t) => ({ ...clone(t), comment_count: state.trackerComments.filter((c) => c.item_id === t.id).length }))
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    },
+    async saveTrackerItem(input, id) {
+      need("writer");
+      const editor = roleAtLeast(role(), "editor");
+      const mine = me().author_id || null;
+      const row = pick(input, TRACKER_FIELDS);
+      if (!id) {
+        if (!String(row.title || "").trim()) throw new Error("Give the story a working headline.");
+        const t = { id: uid(), angle: "", section: "markets", priority: "normal", stage: "pitch", writer_id: null, editor_id: null, due_on: null, publish_on: null,
+          meeting_needed: false, meeting_at: null, meeting_note: "", article_id: null, created_by: me().id, created_at: nowISO(), updated_at: nowISO(), ...row };
+        if (!editor) { t.stage = "pitch"; t.editor_id = null; if (t.writer_id !== mine) t.writer_id = null; }
+        state.tracker.unshift(t);
+        save();
+        return clone(t);
+      }
+      const t = state.tracker.find((x) => x.id === id);
+      if (!t) throw new Error("That story is no longer on the tracker.");
+      if (!editor) {
+        const claiming = !t.writer_id && t.stage !== "pitch" && mine && row.writer_id === mine;
+        if (!(t.created_by === me().id || (mine && t.writer_id === mine) || claiming)) throw denied();
+        delete row.editor_id;
+        if ("writer_id" in row && row.writer_id !== t.writer_id && !claiming) delete row.writer_id;
+        if (row.stage && row.stage !== t.stage && (t.stage === "pitch" || !TRACKER_WRITER_STAGES.includes(row.stage))) {
+          throw new Error("Editors approve pitches and move stories to Ready, Published or Dropped.");
+        }
+      }
+      Object.assign(t, row, { updated_at: nowISO() });
+      save();
+      return clone(t);
+    },
+    async deleteTrackerItem(id) {
+      need("writer");
+      const t = state.tracker.find((x) => x.id === id);
+      if (t && !roleAtLeast(role(), "editor") && !(t.created_by === me().id && t.stage === "pitch")) throw denied();
+      state.tracker = state.tracker.filter((x) => x.id !== id);
+      state.trackerComments = state.trackerComments.filter((c) => c.item_id !== id);
+      save();
+    },
+    async listTrackerComments(itemId) {
+      need("writer");
+      return clone(state.trackerComments.filter((c) => c.item_id === itemId)).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    },
+    async addTrackerComment(itemId, body) {
+      need("writer");
+      const c = { id: uid(), item_id: itemId, user_id: me().id, author_name: me().full_name || me().email, body: String(body).trim(), created_at: nowISO() };
+      state.trackerComments.push(c);
+      save();
+      return clone(c);
+    },
+    async deleteTrackerComment(id) {
+      need("writer");
+      const c = state.trackerComments.find((x) => x.id === id);
+      if (c && c.user_id !== me().id && !roleAtLeast(role(), "editor")) throw denied();
+      state.trackerComments = state.trackerComments.filter((x) => x.id !== id);
       save();
     },
 

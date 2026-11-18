@@ -3,7 +3,7 @@ import { db, LIVE, config } from "../data/db.js";
 import { html, raw, mount, icon, fmtDate, fmtDateTime, timeAgo, initials, safeUrl, slugify, fmtBytes, debounce, $, $$ } from "../lib/util.js";
 import { toast, confirmDialog, openPanel, copyText, downloadFile } from "../lib/ui.js";
 import { renderMarkdown } from "../lib/md.js";
-import { articleState, roleAtLeast, ROLES, ROLE_LABELS, friendlyError, itemKind, SETTINGS_DEFAULTS, teamList, authorTeams, MARKETING } from "../data/shared.js";
+import { articleState, roleAtLeast, ROLES, ROLE_LABELS, friendlyError, itemKind, SETTINGS_DEFAULTS, teamList, authorTeams, MARKETING, isPublic } from "../data/shared.js";
 import { topicLabel, prettify, builtInSlugs } from "../data/sections.js";
 import { kindIcon, kindLabel, openUploadPanel, openViewer } from "../shared/portal-ui.js";
 
@@ -708,6 +708,10 @@ export async function sections(ctx) {
           <div class="row"><button class="btn btn-accent" type="button" data-apply-topics>Apply changes</button><span class="small muted" data-topic-status></span></div>`
           : html`<p class="small muted">No stories have a topic line yet.</p>`}
       </section>
+      <section class="card card-pad stack" aria-labelledby="sm-h">
+        <div><h2 id="sm-h">Sitemap file</h2><p>The site builds <a href="/sitemap.xml" target="_blank" rel="noopener">/sitemap.xml</a> live when Netlify deploys it from GitHub. If that address shows "page not found", download this file, put it in the top folder of the GitHub repository next to <code>index.html</code>, and deploy. Download a fresh copy after publishing new stories, or link Netlify to GitHub so it stays current on its own.</p></div>
+        <div><button class="btn" type="button" data-sitemap>${icon("download")} Download sitemap.xml</button></div>
+      </section>
     </div>
   </div>`);
 
@@ -742,6 +746,23 @@ export async function sections(ctx) {
         $("[data-sec-status]", ctx.el).textContent = "Saved. Menus show the change on the next page you open.";
       } catch (ex) { toast(friendlyError(ex), { error: true }); }
       finally { save.disabled = false; }
+    }
+    if (e.target.closest("[data-sitemap]")) {
+      const base = String(config.site.url || location.origin).replace(/\/$/, "");
+      const esc = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const authorsList = await db.listAuthors().catch(() => []);
+      const live = articles.filter((a) => isPublic(a));
+      const newest = (live[0] && (live[0].updated_at || live[0].published_at)) || new Date().toISOString();
+      const url = (path, mod, extra = "") => `<url><loc>${esc(base + path)}</loc>${mod ? `<lastmod>${String(mod).slice(0, 10)}</lastmod>` : ""}${extra}</url>`;
+      const lines = [
+        ...["/", "/categories/latest", "/categories", "/learn", "/team", "/about-us", "/apply", "/submit", "/contact", "/register"].map((p) => url(p, p === "/" || p === "/categories/latest" || p === "/learn" ? newest : "")),
+        ...config.sections.map((x) => url(`/categories/${x.slug}`, newest)),
+        ...config.learn.topics.map((t) => url(`/learn?topic=${encodeURIComponent(t)}`)),
+        ...authorsList.filter((p) => !(p.slug === "editors" || /^house\b/i.test(p.role_title || ""))).map((p) => url(`/authors/${encodeURIComponent(p.slug)}`)),
+        ...live.map((a) => url(`/articles/${encodeURIComponent(a.slug)}`, a.updated_at || a.published_at, /^https?:\/\//.test(a.cover_url || "") ? `<image:image><image:loc>${esc(a.cover_url)}</image:loc></image:image>` : "")),
+      ];
+      downloadFile("sitemap.xml", `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${lines.join("\n")}\n</urlset>\n`, "application/xml");
+      toast(`sitemap.xml downloaded with ${live.length} stories`);
     }
     const apply = e.target.closest("[data-apply-topics]");
     if (apply) {

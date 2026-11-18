@@ -930,3 +930,14 @@ figure.fj-chart {
   .recruit-pop { transform: none; transition: opacity .2s linear; }
 }
 @media print { .recruit-pop { display: none !important; } }
+
+/* ---------- Crawler copy ----------
+   The server adds a plain copy of each page for search engines and link previews
+   (netlify/edge-functions/seo.js). Browsers that run the site's scripts draw the real page instead. */
+.js .ssr { display: none; }
+.ssr { padding-block: 32px 64px; }
+.ssr-list { list-style: none; display: grid; gap: 22px; max-width: 760px; }
+.ssr-list h2 { font: 400 1.35rem/1.2 var(--headline); }
+.ssr-list a { color: var(--ink); }
+.ssr-list p, .ssr-list time { font: 400 var(--fs-small)/1.5 var(--sans); color: var(--muted); }
+.ssr .article-cover img { max-width: 100%; height: auto; }

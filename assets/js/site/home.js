@@ -1,10 +1,11 @@
 import { db, config } from "../data/db.js";
 import { html, mount, fmtDate, $ } from "../lib/util.js";
 import { initChrome, setMeta } from "./chrome.js";
+import { graph, organizationLd, websiteLd, homeTitle } from "../lib/schema.js";
 import { story, articleUrl, sectionUrl, sectionName, avatar, authorUrl, media, kicker, meta, skeletonCards, emptyState, errorState } from "./cards.js";
 
 initChrome({ active: "home" });
-setMeta({ title: config.site.name, description: config.site.description });
+setMeta({ fullTitle: homeTitle(config.site), description: config.site.description, url: "/", ld: graph(organizationLd(config.site), websiteLd(config.site)) });
 const main = $("#main");
 
 mount(main, html`

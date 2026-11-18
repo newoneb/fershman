@@ -97,6 +97,8 @@ const ARTICLE_TARGETS = [
   { key: "author", label: "Author", guess: ["author", "authors", "writer", "byline", "written by"] },
   { key: "cover_url", label: "Cover image", guess: ["image", "cover", "thumbnail", "featured image", "hero", "cover image", "main image", "banner"] },
   { key: "cover_alt", label: "Cover alt text", guess: ["image alt", "alt", "alt text"] },
+  { key: "seo_title", label: "Search title", guess: ["seo title", "meta title", "search title"] },
+  { key: "seo_description", label: "Search description", guess: ["seo description", "meta description", "search description"] },
   { key: "featured", label: "Featured (yes/no)", guess: ["featured", "feature", "pinned"] },
   { key: "draft", label: "Draft flag (yes/no)", guess: ["draft", "is draft", "hidden", "archived"] },
 ];
@@ -296,6 +298,7 @@ function setupImporter(host, kind, ctx) {
         author_key: aVal ? (aVal in authorMap ? authorMap[aVal] : resolveAuthorAuto(aVal)) : "",
         cover_url: firstUrl(get(r, "cover_url")) || null, cover_alt: get(r, "cover_alt") || null,
         published_at: parseDate(get(r, "published_at")) || new Date().toISOString(),
+        seo_title: plain(get(r, "seo_title")) || null, seo_description: plain(get(r, "seo_description")) || null,
         featured: truthy(get(r, "featured")),
         status: !publish || truthy(get(r, "draft")) ? "draft" : "published",
       });

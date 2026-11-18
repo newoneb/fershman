@@ -7,11 +7,15 @@
 // Global Privacy Control signal, or on browsers where someone signed in to the admin.
 //
 // The measurement ID comes from config.js (analytics.ga4); set it to "" to turn analytics off.
+// Google Tag Manager loads on the same pages and follows the same rules. Its container ID can be
+// set in config.js as analytics.gtm ("" turns it off).
 import config from "/config.js";
 
 const DEFAULT_ID = "G-WQ8MGKY96G";
+const DEFAULT_GTM = "GTM-MX4LLTGS";
 const cfg = (config && config.analytics) || {};
 const ID = Object.prototype.hasOwnProperty.call(cfg, "ga4") ? String(cfg.ga4 || "").trim() : DEFAULT_ID;
+const GTM_ID = Object.prototype.hasOwnProperty.call(cfg, "gtm") ? String(cfg.gtm || "").trim() : DEFAULT_GTM;
 const OPT_OUT_KEY = "fj-no-analytics";
 
 function readOptOut() {
@@ -22,11 +26,25 @@ function readOptOut() {
     return localStorage.getItem(OPT_OUT_KEY) === "1";
   } catch (_) { return false; }
 }
-const OFF = !/^G-[A-Z0-9]{4,}$/i.test(ID)
-  || navigator.globalPrivacyControl === true
+// Pages and visitors that are never measured, by Analytics or Tag Manager.
+const BLOCKED = navigator.globalPrivacyControl === true
   || /^\/(admin|portal)(\/|$)/.test(location.pathname)
   || new URLSearchParams(location.search).has("preview")
   || readOptOut();
+const OFF = BLOCKED || !/^G-[A-Z0-9]{4,}$/i.test(ID);
+
+/** Google Tag Manager, as in Google's install snippet: the gtm.js start event, then the container. */
+function startTagManager() {
+  if (BLOCKED || !/^GTM-[A-Z0-9]{4,}$/i.test(GTM_ID) || window.__fjGtm) return;
+  window.__fjGtm = true;
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({ "gtm.start": Date.now(), event: "gtm.js" });
+  const s = document.createElement("script");
+  s.async = true;
+  s.src = `https://www.googletagmanager.com/gtm.js?id=${encodeURIComponent(GTM_ID)}`;
+  document.head.append(s);
+}
+startTagManager();
 
 let started = false;
 let pageSent = false;
