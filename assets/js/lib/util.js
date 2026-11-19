@@ -1,5 +1,7 @@
 // Small helpers shared by every page. No dependencies.
 
+import { withScheme } from "./schema.js";
+export { withScheme };
 const SAFE = Symbol("safe-html");
 
 /** Mark a string as already-safe HTML. */
@@ -41,7 +43,7 @@ export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel
 
 /** Allow only http(s), mailto, tel, data:image and site-relative URLs. */
 export function safeUrl(url) {
-  const u = String(url ?? "").trim();
+  const u = withScheme(url);
   if (!u) return "";
   if (u.startsWith("/") && !u.startsWith("//")) return u;
   if (/^data:image\/(png|jpe?g|gif|webp|avif);base64,/i.test(u)) return u;

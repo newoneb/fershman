@@ -5,6 +5,7 @@ import { toast, confirmDialog, openPanel, copyText, downloadFile } from "../lib/
 import { renderMarkdown } from "../lib/md.js";
 import { articleState, roleAtLeast, ROLES, ROLE_LABELS, friendlyError, itemKind, SETTINGS_DEFAULTS, teamList, authorTeams, MARKETING, isPublic } from "../data/shared.js";
 import { topicLabel, prettify, builtInSlugs } from "../data/sections.js";
+import { withScheme } from "../lib/schema.js";
 import { kindIcon, kindLabel, openUploadPanel, openViewer } from "../shared/portal-ui.js";
 
 const STATE_LABEL = { published: "Published", scheduled: "Scheduled", review: "In review", draft: "Draft" };
@@ -202,9 +203,9 @@ export async function authors(ctx) {
             const extra = $("#au-t", r).value.trim();
             return [...new Set([...mine.filter((t) => checked.includes(t)), ...checked, ...(extra ? [extra] : [])])];
           })(),
-          booking_url: $("#au-bk", r).value.trim() || null, contact_email: $("#au-ce", r).value.trim() || null,
+          booking_url: withScheme($("#au-bk", r).value) || null, contact_email: $("#au-ce", r).value.trim() || null,
           sort_order: Number($("#au-o", r).value) || 100, bio: $("#au-b", r).value.trim() || null,
-          avatar_url: $("#au-a", r).value.trim() || null, linkedin_url: $("#au-li", r).value.trim() || null, x_url: $("#au-x", r).value.trim() || null,
+          avatar_url: $("#au-a", r).value.trim() || null, linkedin_url: withScheme($("#au-li", r).value) || null, x_url: withScheme($("#au-x", r).value) || null,
         };
         if (!data.name) { $(".form-error", r).textContent = "Enter the author's name."; return; }
         if (!data.teams.length) data.teams = ["Contributors"];
@@ -645,7 +646,7 @@ export async function byline(ctx) {
   $("[data-save]", ctx.el).addEventListener("click", async () => {
     const v = (x) => $(x, ctx.el).value.trim();
     const patch = { name: v("#my-n") || a.name, role_title: v("#my-r") || null, class_year: v("#my-cy") || null, major: v("#my-mj") || null, bio: v("#my-b") || null, avatar_url: v("#my-a") || null,
-      linkedin_url: v("#my-li") || null, x_url: v("#my-x") || null, booking_url: v("#my-bk") || null, contact_email: v("#my-ce") || null };
+      linkedin_url: withScheme(v("#my-li")) || null, x_url: withScheme(v("#my-x")) || null, booking_url: withScheme(v("#my-bk")) || null, contact_email: v("#my-ce") || null };
     if (patch.booking_url && !/^https:\/\//i.test(patch.booking_url)) { $(".form-error", ctx.el).textContent = "The booking link should start with https://"; return; }
     try { await db.updateMyByline(patch); toast("Byline saved"); }
     catch (ex) { $(".form-error", ctx.el).textContent = friendlyError(ex); }

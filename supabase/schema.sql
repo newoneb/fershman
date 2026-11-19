@@ -32,6 +32,11 @@ create table if not exists public.authors (
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+-- Profile links saved without https:// ("www.linkedin.com/in/…") opened as pages on this site. Fix them once.
+update public.authors set linkedin_url = 'https://' || regexp_replace(trim(linkedin_url), '^/+', '')
+  where linkedin_url is not null and trim(linkedin_url) <> '' and trim(linkedin_url) !~* '^(https?|mailto):' and trim(linkedin_url) ~* '^[a-z0-9.-]+\.[a-z]{2,}';
+update public.authors set x_url = 'https://' || regexp_replace(trim(x_url), '^/+', '')
+  where x_url is not null and trim(x_url) <> '' and trim(x_url) !~* '^(https?|mailto):' and trim(x_url) ~* '^[a-z0-9.-]+\.[a-z]{2,}';
 -- Byline fields added after the first release.
 alter table public.authors add column if not exists teams         text[];
 alter table public.authors add column if not exists booking_url   text;

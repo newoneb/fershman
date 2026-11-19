@@ -228,8 +228,8 @@ async function authorPage() {
           ${personMeta(author) ? html`<p class="person-meta-line">${personMeta(author)}</p>` : ""}
           ${author.bio ? html`<p class="bio" style="font-style:normal">${author.bio}</p>` : ""}
           ${author.x_url || author.linkedin_url ? html`<div class="author-links">
-            ${author.linkedin_url ? html`<a href="${author.linkedin_url}" target="_blank" rel="noopener">LinkedIn</a>` : ""}
-            ${author.x_url ? html`<a href="${author.x_url}" target="_blank" rel="noopener">X</a>` : ""}</div>` : ""}
+            ${safeUrl(author.linkedin_url) ? html`<a href="${safeUrl(author.linkedin_url)}" target="_blank" rel="noopener">LinkedIn</a>` : ""}
+            ${safeUrl(author.x_url) ? html`<a href="${safeUrl(author.x_url)}" target="_blank" rel="noopener">X</a>` : ""}</div>` : ""}
         </div>
       </div>
     </header>

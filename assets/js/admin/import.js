@@ -5,6 +5,7 @@ import { toast } from "../lib/ui.js";
 import { sanitizeHTML } from "../lib/md.js";
 import { friendlyError } from "../data/shared.js";
 import { topicLabel } from "../data/sections.js";
+import { withScheme } from "../lib/schema.js";
 
 // ---------- helpers ----------
 function loadScript(src, globalName) {
@@ -314,7 +315,7 @@ function setupImporter(host, kind, ctx) {
       return {
         name, slug: cleanSlug(get(r, "slug")) || slugify(name), role_title: plain(get(r, "role_title")) || null,
         bio: plain(get(r, "bio")) || null, avatar_url: firstUrl(get(r, "avatar_url")) || null,
-        linkedin_url: firstUrl(get(r, "linkedin_url")) || null, x_url: firstUrl(get(r, "x_url")) || null,
+        linkedin_url: withScheme(firstUrl(get(r, "linkedin_url"))) || null, x_url: withScheme(firstUrl(get(r, "x_url"))) || null,
       };
     }).filter(Boolean);
   }

@@ -23,6 +23,20 @@ export function excerpt(md, max = 160) {
 }
 
 /** What search engines show: the SEO fields from the editor, or the headline and standfirst. */
+/**
+ * Adds https:// to web addresses typed without it, like "www.linkedin.com/in/name" or "x.com/name".
+ * Without it, browsers treat them as pages on this site. Paths, anchors and other schemes are left alone.
+ */
+export function withScheme(url) {
+  const u = String(url ?? "").trim();
+  if (!u) return "";
+  if (u.startsWith("//")) return `https:${u}`;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(u) || /^[/#?.]/.test(u)) return u;
+  const host = u.split(/[/?#]/)[0];
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}(:\d+)?$/i.test(host) && !/\.(png|jpe?g|gif|webp|avif|svg|pdf|html?|js|css|md|txt)$/i.test(host)) return `https://${u}`;
+  return u;
+}
+
 export const searchTitle = (a) => String(a.seo_title || a.title || "").trim();
 export const searchDescription = (a) => String(a.seo_description || a.dek || "").trim() || excerpt(a.body, 160);
 export const homeTitle = (site) => site.seoTitle || `${site.name} — M&A, Markets and Financial Policy Analysis`;
@@ -44,7 +58,7 @@ export function organizationLd(site) {
     url: absolute(site, "/"),
     logo: { "@type": "ImageObject", url: absolute(site, "/assets/img/apple-touch-icon.png"), width: 180, height: 180 },
     description: site.description,
-    sameAs: Object.values(site.social || {}).filter(Boolean),
+    sameAs: Object.values(site.social || {}).map(withScheme).filter(Boolean),
     email: site.contactEmail || undefined,
   };
 }
@@ -105,7 +119,7 @@ export function personLd(p, { site, url }) {
       jobTitle: p.role_title || undefined,
       description: p.bio || undefined,
       image: p.avatar_url || undefined,
-      sameAs: [p.linkedin_url, p.x_url].filter(Boolean),
+      sameAs: [p.linkedin_url, p.x_url].map(withScheme).filter(Boolean),
       worksFor: { "@id": absolute(site, "/#organization") },
     },
   };
