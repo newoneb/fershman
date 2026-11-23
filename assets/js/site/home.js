@@ -4,6 +4,16 @@ import { initChrome, setMeta } from "./chrome.js";
 import { graph, organizationLd, websiteLd, homeTitle } from "../lib/schema.js";
 import { story, articleUrl, sectionUrl, sectionName, avatar, authorUrl, media, kicker, meta, skeletonCards, emptyState, errorState } from "./cards.js";
 
+// The press run: on the first front page of a visit the nameplate inks in and the lead story settles
+// (site.css, "The press run"). Later visits to the front page that day open straight away.
+try {
+  if (!sessionStorage.getItem("fj-press-run")) {
+    sessionStorage.setItem("fj-press-run", "1");
+    document.documentElement.classList.add("is-entering");
+    setTimeout(() => document.documentElement.classList.remove("is-entering"), 2400);
+  }
+} catch (_) { /* private mode: no entrance */ }
+
 initChrome({ active: "home" });
 setMeta({ fullTitle: homeTitle(config.site), description: config.site.description, url: "/", ld: graph(organizationLd(config.site), websiteLd(config.site)) });
 const main = $("#main");

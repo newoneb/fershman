@@ -28,6 +28,9 @@ export function media(a, { cls = "", eager = false } = {}) {
   return html`<a class="media ${cls}" href="${articleUrl(a)}" tabindex="-1" aria-hidden="true">${inner}</a>`;
 }
 
+/** A headline that may break after a slash ("Nvidia/TSMC/ASML") instead of mid-word on narrow screens. */
+export const breakable = (t) => raw(esc(String(t ?? "")).replace(/\//g, "/<wbr>"));
+
 export function meta(a, { byline = true, date = true, minutes = false } = {}) {
   const parts = [];
   if (byline && a.author) parts.push(html`<a class="byline" href="${authorUrl(a.author)}">${a.author.name}</a>`);
@@ -44,7 +47,7 @@ export function story(a, variant = "secondary", opts = {}) {
   const body = html`
     <div class="story-body">
       ${kicker(a)}
-      <${h} class="story-title"><a href="${articleUrl(a)}">${a.title}</a></${h}>
+      <${h} class="story-title"><a href="${articleUrl(a)}">${breakable(a.title)}</a></${h}>
       ${dek && a.dek ? html`<p class="story-dek">${a.dek}</p>` : ""}
       ${meta(a)}
     </div>`;

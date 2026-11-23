@@ -191,6 +191,23 @@ function setupCompactBar() {
   io.observe(target);
 }
 
+/** Switching the colour theme spreads the new one out in a circle from the button pressed. */
+function revealTheme(btn, apply) {
+  if (!document.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches) { apply(); return; }
+  const r = btn.getBoundingClientRect();
+  const x = r.left + r.width / 2;
+  const y = r.top + r.height / 2;
+  const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  const root = document.documentElement;
+  root.classList.add("theme-vt");
+  const t = document.startViewTransition(apply);
+  t.ready.then(() => root.animate(
+    { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+    { duration: 520, easing: "cubic-bezier(0.32, 0.72, 0, 1)", pseudoElement: "::view-transition-new(root)" },
+  )).catch(() => {});
+  t.finished.finally(() => root.classList.remove("theme-vt"));
+}
+
 function setupTheme() {
   const sync = () => {
     const mode = getTheme();
@@ -198,7 +215,7 @@ function setupTheme() {
   };
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-theme-set]");
-    if (b) { setTheme(b.dataset.themeSet); sync(); }
+    if (b) revealTheme(b, () => { setTheme(b.dataset.themeSet); sync(); });
   });
   sync();
 }

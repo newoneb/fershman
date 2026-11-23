@@ -5,7 +5,7 @@ import { isPublic, articleState, parseFigures } from "../data/shared.js";
 import { initChrome, setMeta } from "./chrome.js";
 import { graph, articleLd, organizationLd, searchTitle, searchDescription, absolute } from "../lib/schema.js";
 import { trackReading } from "./analytics.js";
-import { story, kicker, avatar, authorUrl, articleUrl, sectionUrl, sectionName, shareButtons, emptyState, errorState } from "./cards.js";
+import { story, kicker, avatar, authorUrl, articleUrl, sectionUrl, sectionName, shareButtons, emptyState, errorState , breakable } from "./cards.js";
 
 const slug = routeParam("/articles");
 const previewKey = params().get("preview");
@@ -58,12 +58,11 @@ function renderArticle(a) {
     ${!isPublic(a) ? html`<div class="preview-banner"><div class="container">
       <span>Preview — ${state === "scheduled" ? `scheduled for ${fmtDateTime(a.published_at)}` : state === "review" ? "waiting for editor review" : "draft, not visible to readers"}.</span>
       <a href="/admin/#/articles/${a.id}">Edit in admin</a></div></div>` : ""}
-    <div class="progress" aria-hidden="true"><span id="progress"></span></div>
     <article class="article" itemscope itemtype="https://schema.org/NewsArticle">
       <div class="article-shell">
         <header class="article-head">
           ${kicker(a, { showSection: true })}
-          <h1 class="article-title" itemprop="headline">${a.title}</h1>
+          <h1 class="article-title" itemprop="headline">${breakable(a.title)}</h1>
           ${a.dek ? html`<p class="article-dek" itemprop="description">${a.dek}</p>` : ""}
           <div class="article-byline">
             ${a.author ? html`
@@ -118,19 +117,11 @@ function renderArticle(a) {
       </div>
     </article>
     <section class="related container" id="related" aria-label="More stories"></section>`);
+  setupReading(a);
 
-  // Reading progress
-  const bar = $("#progress");
+  // Reading progress: the line in the sticky bar (setupReading).
   const body = $(".article-body");
   enhance(body);
-  const onScroll = () => {
-    const r = body.getBoundingClientRect();
-    const total = r.height - innerHeight * 0.6;
-    const p = Math.min(1, Math.max(0, -r.top / (total > 0 ? total : 1)));
-    bar.style.transform = `scaleX(${p})`;
-  };
-  addEventListener("scroll", onScroll, { passive: true });
-  onScroll();
 
   if (isPublic(a)) {
     trackReading(body, { ...tracked, read_minutes: minutes });
@@ -167,4 +158,32 @@ async function loadExtras(a) {
   } catch (err) {
     console.warn("Related stories unavailable", err);
   }
+}
+
+/** In the sticky bar: the story's headline, and a thin line that fills as you read the article body. */
+function setupReading(a) {
+  const bar = document.getElementById("compact-bar");
+  const body = document.querySelector(".article-body");
+  if (!bar || !body || bar.querySelector(".compact-title")) return;
+  const wrap = bar.querySelector(".container");
+  const title = document.createElement("p");
+  title.className = "compact-title";
+  title.textContent = a.title;
+  wrap.insertBefore(title, wrap.querySelector(".compact-actions"));
+  bar.classList.add("has-title");
+  const line = document.createElement("div");
+  line.className = "read-progress";
+  line.setAttribute("aria-hidden", "true");
+  bar.append(line);
+  let queued = false;
+  const update = () => {
+    queued = false;
+    const r = body.getBoundingClientRect();
+    const done = (innerHeight * 0.4 - r.top) / Math.max(r.height - innerHeight * 0.2, 1);
+    line.style.transform = `scaleX(${Math.min(1, Math.max(0, done)).toFixed(4)})`;
+  };
+  const onScroll = () => { if (!queued) { queued = true; requestAnimationFrame(update); } };
+  addEventListener("scroll", onScroll, { passive: true });
+  addEventListener("resize", onScroll, { passive: true });
+  update();
 }
