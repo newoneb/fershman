@@ -6,7 +6,7 @@ import { track } from "./analytics.js";
 import { story, articleUrl, sectionUrl, avatar, authorUrl, skeletonCards, emptyState, errorState } from "./cards.js";
 import { teamList, authorTeams, isMarketing, isHouseByline, mergeRecruiting } from "../data/shared.js";
 import { prettify } from "../data/sections.js";
-import { graph, personLd, organizationLd, absolute } from "../lib/schema.js";
+import { graph, personLd, organizationLd, absolute, closestAuthor } from "../lib/schema.js";
 
 const page = document.body.dataset.page;
 const main = $("#main");
@@ -213,7 +213,9 @@ function openPerson(p, rc, opener) {
 async function authorPage() {
   initChrome({ active: "team" });
   const slug = routeParam("/authors");
-  const author = slug ? await db.getAuthor(slug) : null;
+  let author = slug ? await db.getAuthor(slug) : null;
+  // An old or mistyped address (like a Framer-era typo) still finds the writer.
+  if (!author && slug) author = closestAuthor(await db.listAuthors().catch(() => []), slug);
   if (!author) return notFound("Author not found", "We couldn't find that writer. See everyone on the team page.");
   setMeta({ title: author.name, url: absolute(config.site, authorUrl(author)), type: "profile", image: author.avatar_url || undefined, ld: graph(personLd(author, { site: config.site, url: absolute(config.site, authorUrl(author)) }), organizationLd(config.site)), description: author.bio || `${author.name}${author.role_title ? `, ${author.role_title}` : ""} at The Fershman Journal.` });
   const query = (offset, limit) => db.listArticles({ authorId: author.id, offset, limit });

@@ -155,7 +155,7 @@ export async function describePage(url) {
   if (m) {
     const rows = await rest(`authors?slug=eq.${encodeURIComponent(m[1])}&select=*&limit=1`);
     if (!rows) return null;
-    const p = rows[0];
+    const p = rows[0] || S.closestAuthor((await rest("authors?select=*&limit=1000")) || [], m[1]);
     if (!p) return notFound(path, "Writer");
     const items = articleItems(await publishedArticles(`author_id=eq.${p.id}`));
     const url2 = abs(`/authors/${encodeURIComponent(p.slug)}`);

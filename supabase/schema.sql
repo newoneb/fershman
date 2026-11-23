@@ -32,6 +32,11 @@ create table if not exists public.authors (
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+-- The Framer import kept a typo in one byline's address (shaurya-vohtra). The site redirects that
+-- address to shaurya-vohra (see _redirects), so the byline must use the corrected spelling.
+update public.authors set slug = 'shaurya-vohra'
+  where slug = 'shaurya-vohtra' and not exists (select 1 from public.authors where slug = 'shaurya-vohra');
+
 -- Profile links saved without https:// ("www.linkedin.com/in/…") opened as pages on this site. Fix them once.
 update public.authors set linkedin_url = 'https://' || regexp_replace(trim(linkedin_url), '^/+', '')
   where linkedin_url is not null and trim(linkedin_url) <> '' and trim(linkedin_url) !~* '^(https?|mailto):' and trim(linkedin_url) ~* '^[a-z0-9.-]+\.[a-z]{2,}';

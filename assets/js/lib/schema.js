@@ -47,6 +47,30 @@ export const xHandle = (site) => {
   const m = String((site.social || {}).x || "").match(/(?:x|twitter)\.com\/([A-Za-z0-9_]+)/);
   return m ? `@${m[1]}` : "";
 };
+/**
+ * The byline a writer-page address most likely means, when it doesn't match exactly: the same name
+ * written as an address, or an address one or two letters off (an old typo that's since been fixed).
+ */
+export function closestAuthor(list, slug) {
+  const want = String(slug || "").toLowerCase();
+  if (!want) return null;
+  const asSlug = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const dist = (a, b) => {
+    if (Math.abs(a.length - b.length) > 2) return 3;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[b.length];
+  };
+  return list.find((a) => String(a.slug).toLowerCase() === want)
+    || list.find((a) => asSlug(a.name) === want)
+    || list.map((a) => [a, dist(String(a.slug).toLowerCase(), want)]).filter(([, d]) => d <= 2).sort((x, y) => x[1] - y[1]).map(([a]) => a)[0]
+    || null;
+}
+
 export const isHouseByline = (a) => Boolean(a) && (a.slug === "editors" || /^house\b/i.test(a.role_title || ""));
 
 export function organizationLd(site) {
